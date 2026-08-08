@@ -181,11 +181,18 @@ const isHeadingCarrier = (c) => c.style === 'heading' || c.style === 'bold-lead'
 // semicolon. A false positive here means Pass A skips a real claim.
 // Measured per LINE, not over the joined text: a two-line commented-out block
 // whose last line ends in `)` has a semicolon on the first one.
+// Prose uses semicolons and parentheses too. "A static override (the /themes
+// showcase) renders the picker without auth;" matched every syntax rule tried
+// here, so the discriminator is English: code lines carry almost no stopwords.
 const CODE_SHAPE = /;\s*$|[{}]\s*$|=>/
+const STOPWORD = /\b(the|a|an|so|is|are|we|it|its|this|that|and|but|for|to|of|in|on|when|if|because|otherwise|would|will|not|no)\b/gi
+const looksLikeProse = (line) => (line.match(STOPWORD) ?? []).length >= 2
+
 const codeLineRatio = (bodyLines) => {
 	const real = bodyLines.filter((l) => l.trim())
 	if (!real.length) return 0
-	return real.filter((l) => CODE_SHAPE.test(l)).length / real.length
+	const code = real.filter((l) => CODE_SHAPE.test(l) && !looksLikeProse(l))
+	return code.length / real.length
 }
 
 const NOT_A_CLAIM = [
