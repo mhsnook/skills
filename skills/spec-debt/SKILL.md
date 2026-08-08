@@ -120,8 +120,13 @@ when it is a cut.
 ### 2. Reduce — Pass A
 
 Follow [references/reduce.md](references/reduce.md). Cut changelog comments, PR
-references, restatements of the code or of a project doc, and padding. Separate
-claims that were sharing one comment.
+references, restatements of a project doc, and padding. Separate claims that
+were sharing one comment.
+
+Scrutiny scales with length, and a one-liner gets the benefit of the doubt. A
+short comment that repeats the code below it is often a **signpost** — it marks
+a boundary and helps an eye scanning a long file find its place, which is a real
+service that no identifier performs. Judge it on navigation, not novelty.
 
 ### 3. Header
 
