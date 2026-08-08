@@ -7,6 +7,16 @@
 	"description": "Personal skills registry — one skill per plugin, shared skills/ tree.",
 	"plugins": [
 		{
+			"name": "spec-debt",
+			"source": "./",
+			"skills": ["./skills/spec-debt"],
+			"description": "Read-only audit of a codebase for specification debt — claims that live at the wrong altitude (a cross-module rule buried in a code comment, or a local note promoted into a project doc) and claims stated more strongly than they are known. Produces a ledger and a report; edits nothing and asks nothing.",
+			"version": "0.1.0",
+			"author": {
+				"name": "mhsnook"
+			}
+		},
+		{
 			"name": "ci-delta-reports",
 			"source": "./",
 			"skills": ["./skills/ci-delta-reports"],

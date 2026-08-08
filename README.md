@@ -46,7 +46,11 @@ duplicate.
 
 | Skill | What it does |
 |---|---|
+| [`spec-debt`](skills/spec-debt/) | Read-only audit for specification debt: claims living at the wrong altitude, and claims stated more strongly than they are known. Produces a ledger and a report; edits nothing. |
 | [`ci-delta-reports`](skills/ci-delta-reports/) | Sets up GitHub Actions CI that reports what *changed* between base and PR — new vs resolved type errors, lint issues, formatter drift, bundle size, test failures — in one PR comment that updates in place. |
+
+`spec-debt` came verbatim from `mhsnook/journo-harness@707bc1e`, branch
+`skill/spec-debt-audit`. It does not yet pass the frontmatter check — see below.
 
 ## Adding a skill
 
