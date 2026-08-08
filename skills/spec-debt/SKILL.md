@@ -1,6 +1,5 @@
 ---
-name: Spec Debt Audit
-version: 0.1.0
+name: spec-debt
 description: 'Read-only audit of a codebase for specification debt — claims that live at the wrong altitude (a cross-module rule buried in a code comment, or a local note promoted into a project doc) and claims stated more strongly than they are known ("never do X"). Produces a ledger and a report; edits nothing and asks nothing. Triggers: audit spec debt, find spec spaghetti, are our comments over-specified, why do the docs disagree with the code, despecify this codebase.'
 ---
 
@@ -165,4 +164,4 @@ Ordered so the expensive findings arrive before the cheap ones.
 
 ## Additional resources
 
-- **`references/worked-examples.md`** — five claims from this repository, carried through every test, including two the audit leaves alone.
+- **`references/worked-examples.md`** — five claims from one real codebase, carried through every test, including two the audit leaves alone.

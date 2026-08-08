@@ -1,6 +1,8 @@
 # Worked examples
 
-Five claims, each carried through the tests in `SKILL.md`. All five are real, and all five come from this repository as it stood on the `claude/issue-24-6ktvf9` branch, so the line numbers are that branch's rather than `main`'s.
+Five claims, each carried through the tests in `SKILL.md`. All five are real, and all five come from the `journo-harness` repository as it stood on the `claude/issue-24-6ktvf9` branch, so the line numbers are that branch's rather than `main`'s.
+
+They come from one codebase, so the paths and section numbers below are that project's rather than a shape to go looking for. What transfers is the method: which test decided each verdict, and on what evidence.
 
 Two of the five the audit leaves alone. That proportion is the point: an audit that cuts or moves everything it touches has stopped classifying and started tidying.
 
