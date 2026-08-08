@@ -103,13 +103,13 @@ One JSON file, one entry per claim. Write it to the scratchpad rather than into 
 ```jsonc
 {
   "id": "c-014",
-  "file": "src/shared/plan/ops.ts",
+  "file": "src/core/ops.ts",
   "line": 70,
   "text": "A title may be empty, so neither side is nullable.",
   "carrier": "function-comment",       // doc | file-header | function-comment | inline | type-comment
   "reach": {
     "level": "file",                   // none | function | sibling | file | module | project
-    "evidence": ["src/shared/plan/schema.ts:78"],
+    "evidence": ["src/core/schema.ts:78"],
     "checked": true                    // false when the level is inferred rather than grepped
   },
   "modality": {
@@ -164,4 +164,4 @@ Ordered so the expensive findings arrive before the cheap ones.
 
 ## Additional resources
 
-- **`references/worked-examples.md`** — five claims from one real codebase, carried through every test, including two the audit leaves alone.
+- **`references/worked-examples.md`** — five claims carried through every test, including two the audit leaves alone.

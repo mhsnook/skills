@@ -1,8 +1,8 @@
 # Worked examples
 
-Five claims, each carried through the tests in `SKILL.md`. All five are real, and all five come from the `journo-harness` repository as it stood on the `claude/issue-24-6ktvf9` branch, so the line numbers are that branch's rather than `main`'s.
+Five claims, each carried through the tests in `SKILL.md`.
 
-They come from one codebase, so the paths and section numbers below are that project's rather than a shape to go looking for. What transfers is the method: which test decided each verdict, and on what evidence.
+> FYI: these are examples from prior work, showing the method; you will encounter different content and different file structures when you apply this skill to another project.
 
 Two of the five the audit leaves alone. That proportion is the point: an audit that cuts or moves everything it touches has stopped classifying and started tidying.
 
@@ -10,7 +10,7 @@ Two of the five the audit leaves alone. That proportion is the point: an audit t
 
 ## A. A local observation the audit protects
 
-**`src/shared/plan/apply.ts:90`**
+**`src/core/apply.ts:90`**
 
 ```
 // checkIds catches a repeated id at the final parse, but that refusal
@@ -31,13 +31,13 @@ Two of the five the audit leaves alone. That proportion is the point: an audit t
 
 ## B. A fact stated at the use site, with nothing at the definition
 
-**`src/shared/plan/ops.ts:72`**
+**`src/core/ops.ts:72`**
 
 ```
 /** A title may be empty, so neither side is nullable. */
 ```
 
-**`src/shared/plan/schema.ts:63` and `:77`**
+**`src/core/schema.ts:63` and `:77`**
 
 ```
 	title: z.string(),
@@ -80,7 +80,7 @@ Two of the five the audit leaves alone. That proportion is the point: an audit t
 
 `would_write`: *"A field that may be absent says 'nothing here' by being absent, and not also by an empty string or an empty list."* The bold lead-in becomes a topic marker rather than the claim.
 
-`conflicts_with`: `src/shared/plan/schema.ts` — the bullet enumerates two fields that always carry their key, and there are three. `children` is required on every Outline node, and an empty list is how a leaf says it has none.
+`conflicts_with`: `src/core/schema.ts` — the bullet enumerates two fields that always carry their key, and there are three. `children` is required on every Outline node, and an empty list is how a leaf says it has none.
 
 *What this teaches:* two things. A `never` with its consequence attached is doing its job, so the audit records the marker without demanding a rewrite for it — the heading is the defect, not the word. And a promotion done long ago can still be wrong: this claim is at the right altitude and is still misinforming everyone who reads it, because the enumeration under it is incomplete.
 
@@ -88,7 +88,7 @@ Two of the five the audit leaves alone. That proportion is the point: an audit t
 
 ## D. A pointer that also restates its target
 
-**`src/server/index.ts:1`**
+**`src/api/index.ts:1`**
 
 ```
 // Nothing here parses a token, and nothing may require the
@@ -111,7 +111,7 @@ its absence, and build no dev stub for something 1a does not use.
 
 **Verdict: `keep`, confidence `low`.** This one goes in the report's torn list.
 
-The case for trimming: the second clause restates §9, so the rule now has two spellings, and the pointer alone would carry it. The case for keeping: `src/server/index.ts` is exactly where a reader would add the thing the rule forbids, and a bare pointer is easy to skip.
+The case for trimming: the second clause restates §9, so the rule now has two spellings, and the pointer alone would carry it. The case for keeping: `src/api/index.ts` is exactly where a reader would add the thing the rule forbids, and a bare pointer is easy to skip.
 
 *What this teaches:* a claim that cites its source is a different object from a claim that asserts on its own authority, and it is judged by its target. It also shows what a genuinely torn item looks like — the audit states both cases and hands the decision on rather than guessing.
 
@@ -119,7 +119,7 @@ The case for trimming: the second clause restates §9, so the rule now has two s
 
 ## E. A claim that is false in its own file
 
-**`src/shared/plan/schema.ts:9`**
+**`src/core/schema.ts:9`**
 
 ```
 // `.min(1)` throughout, so that a field carries one spelling of "nothing here"
@@ -134,6 +134,6 @@ The case for trimming: the second clause restates §9, so the rule now has two s
 
 **Verdict: `reword`.** `throughout` is false — `title` at `:63` and `:77` has no floor, and it is the only string in the file without one.
 
-`conflicts_with`: `src/shared/plan/schema.ts:63`, in the same file, eleven lines apart.
+`conflicts_with`: `src/core/schema.ts:63`, in the same file, eleven lines apart.
 
 *What this teaches:* the cheapest contradiction to find is the one between a comment and the code beneath it, and it is also the most dangerous. A reader who trusts this line will add `.min(1)` to `title` and break node creation. It pairs with example B: the fact that would have stopped them is the one missing from the definition.
