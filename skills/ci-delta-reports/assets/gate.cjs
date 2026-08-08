@@ -27,8 +27,12 @@ function verdict(check, data) {
 	const rule = POLICY[check] ?? 'report-only'
 	if (rule === 'report-only') return null
 
+	// A step that produced no measurement did not pass — it crashed. Treat the
+	// absence as a failure for every gated check, or a broken build reads as
+	// "no change" and merges clean.
+	if (data.missing) return 'the step produced no measurement (crashed or was skipped)'
+
 	if (check === 'tests') {
-		if (data.missing) return 'no results file was produced'
 		return data.failed > 0 ? `${data.failed} failing test(s)` : null
 	}
 

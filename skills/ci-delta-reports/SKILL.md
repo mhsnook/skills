@@ -15,13 +15,21 @@ Both are legitimate. Ask which one the developer wants — do not assume this on
 ## What you will produce
 
 ```
-.github/workflows/pr-checks.yml   one workflow, several check jobs, one report job
+.github/workflows/pr-checks.yml   head job · base job · report job
+.github/ci/collect-static.sh      runs typecheck + lint + format, normalises output
+.github/ci/measure-bundle.cjs     reads dist/ into a JSON summary
+.github/ci/scan-build.sh          greps dist/ for strings that must not ship
 .github/ci/delta.cjs              diff engine — set difference plus shift-pairing
+.github/ci/render-*.cjs           turn measurements into markdown fragments
 .github/ci/comment.cjs            fragment assembly and comment upsert
-.github/ci/collect-static.sh      runs the checks, normalises their output
-.github/ci/render-*.cjs           one renderer per check
 .github/ci/gate.cjs               the single place pass/fail policy lives
 ```
+
+**One job per tree, not one per check.** `head` and `base` each install once and
+build once, in parallel, then run every check that tree can answer. `report`
+diffs the two summaries, posts one comment, and decides pass or fail. Two
+installs and two builds total, whatever the number of checks — installs and
+builds are paid per job, so a job per check is how the cost explodes.
 
 The architecture, and why each piece is shaped the way it is, lives in
 [references/architecture.md](references/architecture.md). Read it before you
@@ -43,25 +51,33 @@ the following questions much cheaper to answer.
 
 ## Step 2 — ask, do not assume
 
-Present the six checks with their cost, and let the developer pick. Costs
-below are the *extra work* each check adds, not wall-clock guarantees — a slow
-test suite or a large dependency tree dominates everything here.
+Present the six checks and let the developer pick. The **fixed** cost is one
+install and one build per tree, paid once no matter how many checks they take.
+Each check then adds only its own run time, listed below as *marginal* cost.
 
-| # | Check | What the delta tells you | Extra work | Rough |
-|---|-------|--------------------------|-----------|-------|
-| 1 | **Type errors** | New / resolved, with line shifts discounted | install + typecheck on both branches | 3–6 min |
-| 2 | **Lint** | New / resolved, several linters merged into one list | shares job 1's installs | +1 min |
-| 3 | **Formatter drift** | How many files the formatter would still rewrite, grouped by extension | shares job 1's installs | +1 min |
-| 4 | **Bundle size** | Eager-load set, entry chunk, CSS, and which vendor chunks stopped being cacheable | install + **build** on both branches | 5–12 min |
-| 5 | **Tests** | Pass / fail with failure detail inline | install + suite, head branch only | suite + 2 min |
-| 6 | **Bundle content scan** | Dev-only code that leaked into the production build | install + build, head branch only | 3–8 min |
+| # | Check | What the delta tells you | Trees | Marginal cost |
+|---|-------|--------------------------|-------|---------------|
+| 1 | **Type errors** | New / resolved, with line shifts discounted | both | one typecheck per tree |
+| 2 | **Lint** | New / resolved, several linters merged into one list | both | runs beside the typecheck, so ≈ free |
+| 3 | **Formatter drift** | How many files the formatter would still rewrite, grouped by extension | both | one format pass per tree, ~seconds |
+| 4 | **Bundle size** | Eager set, entry chunk, CSS, and which vendor chunks stopped being cacheable | both | **forces the build**, then ≈ free to measure |
+| 5 | **Tests** | Pass / fail with failure detail inline | head | the suite's own runtime |
+| 6 | **Build content scan** | Code that must never ship, found in the built output | head | a grep over the build, seconds |
 
-Two things to say out loud, because they change what people pick:
+Say these out loud, because they change what people pick:
 
-- **Checks 1–3 share one job.** If they take any of them, the other two are
-  nearly free. Adding lint to a repo that already typechecks costs about a minute.
-- **Checks 4 and 6 both build.** If they want both, build once and run both
-  scans over the same output rather than running two jobs that each build.
+- **Checks 1–3 are close to a package deal.** They run in the same script off
+  the same install. Adding lint to a repo that already typechecks is about a minute.
+- **Check 4 is the one that costs.** It forces a build on both trees. If they
+  say no to it, drop the build steps from both jobs entirely.
+- **Check 6 is nearly free once check 4 is in**, because it scans the `dist/`
+  that was already built. On its own it still forces a build.
+- **Wall clock is roughly the slower tree**, not the sum, because `head` and
+  `base` run concurrently.
+
+Do not quote minute figures for their repo. Install and build time varies by
+more than an order of magnitude across projects, and a confident wrong number
+is worse than "it depends on your build".
 
 Then ask the policy questions. These are the ones people have real opinions about:
 
@@ -86,36 +102,40 @@ depends on the toolchain carries a `# CONFIGURE:` marker — resolve all of them
 and delete the marker. A leftover `CONFIGURE` comment in generated output is a
 bug.
 
-- `workflow.yml` → `.github/workflows/pr-checks.yml`. Delete the jobs for checks
-  they did not pick, and prune the `needs:` list to match.
-- `collect-static.sh` → swap in the real typecheck, lint, and format commands.
-  Keep the shape: read-only checks concurrent, formatter last.
+- `workflow.yml` → `.github/workflows/pr-checks.yml`. Delete the **steps** for
+  checks they did not pick, keeping the three jobs. Drop the build steps from
+  both jobs if they took neither check 4 nor check 6.
+- `collect-static.sh` → swap in the real typecheck, lint, and format commands,
+  and set `EXCLUDE` from their answer about vendored files. Keep the shape:
+  read-only checks concurrent, formatter last.
+- `measure-bundle.cjs` → its `measure()` assumes an `index.html` entry point.
+  For a library or server bundle, walk the output directory instead.
 - `render-tests.cjs` → its `parse()` reads the Vitest and Jest JSON shape.
   Rewrite it for another runner and leave the rest.
-- `render-bundle.cjs` → its `measure()` assumes an `index.html` entry point.
-  For a library or server bundle, walk the output directory instead.
+- `scan-build.sh` → replace the example `FORBIDDEN` entries. Ask what must never
+  ship; do not guess. Keep the reason on each line.
 - `gate.cjs` → set `POLICY` from the answers to step 2.
-
-Check 6 has no template, because "dev-only code" means something different in
-every project. Write it fresh: a `grep` over the built output for the strings
-that must never ship, exiting non-zero on a hit. Ask what those strings are.
 
 ## Step 4 — verify before you hand it over
 
 Do not claim this works until you have checked:
 
 ```bash
-node .github/ci/delta.cjs --selftest     # the shift-pairing logic
-bash -n .github/ci/collect-static.sh     # shell syntax
-node -e "require('./.github/ci/gate.cjs')"   # the policy object parses
+node .github/ci/delta.cjs --selftest              # the shift-pairing logic
+bash -n .github/ci/collect-static.sh              # shell syntax
+bash -n .github/ci/scan-build.sh
+node -e "require('./.github/ci/gate.cjs')"        # the policy object parses
+node .github/ci/measure-bundle.cjs dist /tmp/m.json   # after a local build
 ```
 
 Then confirm by reading, not by running:
 
-- The workflow's `needs:` list names exactly the jobs that still exist.
 - The report job has `permissions: pull-requests: write` and `if: always()`, so
   the comment still posts when a check job fails.
-- Every check job has `fetch-depth: 0` if it adds a base-branch worktree.
+- The `base` job checks out `.github/ci/` from the head SHA. Both trees must be
+  measured by the same scripts, or editing a script reads as a code change.
+- Every step the workflow references exists as a file, and every file the
+  workflow does not reference has been deleted.
 - No `CONFIGURE` markers survive.
 
 Say plainly that CI cannot be fully verified without a real PR, and that the
