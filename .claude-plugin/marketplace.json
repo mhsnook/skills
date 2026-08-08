@@ -1,0 +1,20 @@
+{
+	"name": "mhsnook",
+	"owner": {
+		"name": "mhsnook",
+		"url": "https://github.com/mhsnook"
+	},
+	"description": "Personal skills registry — one skill per plugin, shared skills/ tree.",
+	"plugins": [
+		{
+			"name": "ci-delta-reports",
+			"source": "./",
+			"skills": ["./skills/ci-delta-reports"],
+			"description": "Set up GitHub Actions CI that reports what changed between the base branch and the PR — new vs resolved type errors, lint issues, formatter drift, bundle size, and test failures — in one PR comment that updates in place.",
+			"version": "0.1.0",
+			"author": {
+				"name": "mhsnook"
+			}
+		}
+	]
+}

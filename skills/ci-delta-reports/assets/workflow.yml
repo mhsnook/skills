@@ -1,0 +1,188 @@
+# Delta-reporting PR checks.
+#
+# Shape: each check job compares head against base and writes a markdown
+# fragment as an artifact. One `report` job fans in, posts a single comment,
+# and owns the pass/fail decision.
+#
+# CONFIGURE markers show every line that depends on the repository's toolchain.
+# Delete whole jobs for checks you did not choose.
+
+name: PR checks
+
+on:
+  pull_request:
+    branches: [main] # CONFIGURE: your base branches
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22" # CONFIGURE
+
+jobs:
+  # ── Static checks: typecheck, lint, formatter drift ────────────────────
+  # These share one job because they share a toolchain. The expensive part is
+  # installing dependencies twice (head and base), so amortise it across all
+  # three rather than paying it once per check.
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # required: the base branch worktree needs history
+
+      - uses: pnpm/action-setup@v4 # CONFIGURE: your package manager
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm" # CONFIGURE
+
+      - name: Install (head)
+        run: pnpm install --frozen-lockfile # CONFIGURE
+
+      - name: Collect head results
+        run: bash .github/ci/collect-static.sh /tmp/head
+
+      - name: Collect base results
+        run: |
+          git worktree add /tmp/base origin/${{ github.base_ref }}
+          cd /tmp/base
+          pnpm install --frozen-lockfile --silent   # CONFIGURE
+          bash "$GITHUB_WORKSPACE/.github/ci/collect-static.sh" /tmp/base-results
+          cd "$GITHUB_WORKSPACE"
+          git worktree remove --force /tmp/base
+
+      - name: Render fragments
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const render = require('./.github/ci/render-static.cjs')
+            render({ head: '/tmp/head', base: '/tmp/base-results', out: '/tmp/fragments' })
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: fragment-static
+          path: /tmp/fragments/
+          retention-days: 1
+
+  # ── Bundle size ───────────────────────────────────────────────────────
+  # Its own job because it builds rather than lints, and a build is the single
+  # most expensive thing here. Build once per branch, then read every size axis
+  # off the same dist/ — never build once per metric.
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4 # CONFIGURE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm" # CONFIGURE
+
+      # CONFIGURE: a bundler that reads env vars at build time may silently
+      # tree-shake code away when they are missing. Set dummy-but-truthy values.
+      - name: Dummy build env
+        run: |
+          echo "VITE_EXAMPLE_URL=http://127.0.0.1:1234" >> $GITHUB_ENV
+
+      - name: Build head
+        run: |
+          pnpm install --frozen-lockfile   # CONFIGURE
+          pnpm build                        # CONFIGURE
+
+      - name: Build base
+        run: |
+          git worktree add /tmp/base origin/${{ github.base_ref }}
+          cd /tmp/base
+          pnpm install --frozen-lockfile --silent   # CONFIGURE
+          pnpm build                                 # CONFIGURE
+
+      - name: Render fragment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const render = require('./.github/ci/render-bundle.cjs')
+            render({ head: 'dist', base: '/tmp/base/dist', out: '/tmp/fragments' })
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: fragment-bundle
+          path: /tmp/fragments/
+          retention-days: 1
+
+  # ── Tests ─────────────────────────────────────────────────────────────
+  # Single-branch: a test either passes on head or it does not, so there is
+  # nothing to diff against base.
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # CONFIGURE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm" # CONFIGURE
+
+      - name: Install
+        run: pnpm install --frozen-lockfile # CONFIGURE
+
+      - name: Run tests
+        id: run
+        continue-on-error: true # the report job owns the failure, not this step
+        run: pnpm test --reporter=json --outputFile=/tmp/test-results.json # CONFIGURE
+
+      - name: Render fragment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const render = require('./.github/ci/render-tests.cjs')
+            render({ results: '/tmp/test-results.json', out: '/tmp/fragments' })
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: fragment-tests
+          path: /tmp/fragments/
+          retention-days: 1
+
+  # ── Fan-in: one comment, one verdict ──────────────────────────────────
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [static, bundle, tests] # CONFIGURE: list the jobs you kept
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/fragments
+          pattern: fragment-*
+          merge-multiple: true
+
+      - name: Post comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { assemble, upsertComment } = require('./.github/ci/comment.cjs')
+            const marker = '### PR checks'
+            const body = assemble('/tmp/fragments', {
+              marker,
+              header: `_Compared against \`${context.payload.pull_request.base.ref}\`._`,
+            })
+            const result = await upsertComment(github, context, marker, body)
+            core.info(JSON.stringify(result))
+
+      - name: Gate
+        run: node .github/ci/gate.cjs /tmp/fragments
