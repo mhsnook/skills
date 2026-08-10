@@ -40,7 +40,7 @@
 			"name": "comment-review-c",
 			"source": "./",
 			"skills": ["./skills/comment-review-c"],
-			"description": "Trial variant C — the hybrid. A's checklist kept short and imperative, with drift promoted to the first check, the signpost exemption given a test, and the closing rebalanced so deletion is not scored as a win. Install all three variants to compare them in real use.",
+			"description": "Trial variant C — the hybrid, and the working candidate. A's checklist kept short and imperative, with two questions ahead of it (does the comment still match the code, and would it survive a fresh clone with no git history), tests for the rules A leaves unmeasurable, and a closing that stops scoring deletion as a win. Install all three variants to compare them in real use.",
 			"version": "0.1.0",
 			"author": {
 				"name": "mhsnook"

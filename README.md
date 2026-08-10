@@ -63,12 +63,22 @@ which actually works before one of them ships as `comment-review`.
 |---|---|---|
 | **A** | The original copy-paste prompt, unchanged. The control — it ran in real sessions before any of this was a skill. | 55 lines |
 | **B** | The structured rewrite. A's judgment reorganised around drift, over-specification and invisible specs, with the extent, the report shape and the apply step spelled out. | 251 lines |
-| **C** | The hybrid. A's checklist, still short and imperative, with drift promoted to the first check, the signpost exemption given a test, and the closing rebalanced so deletion stops being scored as a win. | 94 lines |
+| **C** | The hybrid, and the working candidate. A's checklist, still short and imperative, led by one question — is this comment true and useful to someone who cloned the repo with no history — with tests added for the rules A leaves unmeasurable, and a closing that stops scoring deletion as a win. | 132 lines |
 
-The open question is whether B's structure earns its 4.5× length, or whether an
+The open question is whether B's structure earns its length, or whether an
 imperative checklist just drives behaviour better than an essay does. C exists
 because the answer is plausibly "neither" — that A was mostly right and needed
-three grafts.
+grafts rather than a rewrite.
+
+C carries four tests A and B do not, taken from a real comment-rewrite pass in
+`mhsnook/journo-harness@6a87cdc` and the post-mortem that followed it: the
+fresh-clone test, the verb-phrase test on a doc comment's first sentence, the
+constraint-not-taste rule for a "why", and the register check. All three variants
+missed the pattern that pass was correcting — comments written as deltas, whose
+"before" the reader cannot see — because the changelog rule they share only fires
+on explicit changelog phrasing. Grafting to C rather than to all three makes the
+trial's form comparison dirty, which was the accepted cost of not field-testing a
+known blind spot.
 
 Each variant's description tells the model not to auto-select, so asking for "a
 comment review" without naming one gets you a question rather than an arbitrary

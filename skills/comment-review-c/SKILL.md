@@ -1,34 +1,55 @@
 ---
 name: comment-review-c
-description: 'Trial variant C of three for reviewing the code comments in one change — a pull request, a branch, or the current diff — checking first whether comments still match the code the change moved, then cutting changelog comments, off-site references, restatements and padding while keeping footgun warnings and signposts. Variants A, B and C are being compared in real use, so run the one the user names rather than auto-selecting between them; if the user asks for a comment review without naming a variant, ask which. For a whole codebase rather than one change, use the spec-debt skill.'
+description: 'Trial variant C of three for reviewing the code comments in one change — a pull request, a branch, or the current diff — checking first whether each comment still matches the code and whether it would survive in a fresh clone with no git history, then cutting restatements, off-site references and padding while keeping footgun warnings and signposts. Variants A, B and C are being compared in real use, so run the one the user names rather than auto-selecting between them; if the user asks for a comment review without naming a variant, ask which. For a whole codebase rather than one change, use the spec-debt skill.'
 license: MIT
 ---
 
 # Comment review — variant C
 
-Variant A's checklist, with three changes: drift goes first, the signpost
-exemption gets a test instead of a mention, and the closing no longer says every
-deletion is a win.
+Variant A's checklist, led by one question — would this comment survive a clone
+with no history — and with tests added for the rules A states but leaves
+unmeasurable.
 
 Code comments that explain where and when we did something tricky, or a bit
 different, make everyone happier and smarter. But excessive code comments cause
 specification debt, context bloat, and reader strain.
 
-**Review all code comments in this batch of work, including comments adjacent to
-or related to the code we touched.** A function whose body changed brings its doc
-comment into scope even if the comment itself is untouched. Read the project's
-README, architecture doc and the file headers first, or "restates a doc" is not
-a question you can answer.
+**Do a pass over all the code comments in this batch of work, including the ones
+adjacent to or related to the code we touched, asking of each: is this comment
+true and useful to someone who cloned the repo with no history?** A function
+whose body changed brings its doc comment into scope even if the comment itself
+is untouched. Read the project's README, architecture doc and the file headers
+first, or "restates a doc" is not a question you can answer.
 
-## First, does it still match the code?
+That one question does most of the work, so run it first and run it on
+everything. Every comment should read as if the code has always existed. If a
+comment would be false or meaningless without the diff beside it, rewrite it to
+say what the thing does, or cut it.
 
-For every comment whose subject this change touched: does it still describe what
-the code does? A renamed parameter, a changed count, a deleted branch, a
-guarantee the new code no longer provides. This is a defect rather than a matter
-of taste, it is the one thing a diff-scoped review can catch cheaply, and it is
-worth more than every cut below.
+It catches more than the changelog rule below, and it catches a subtler thing. A
+comment written while making the change describes the delta, because the delta is
+what was in the writer's head — and the reader has no before. The tell is a
+sentence about a transition:
 
-## Then, the checklist
+```ts
+// Counted rather than named: "the Sections meet the total" left the writer
+// to go and check.
+
+// Rendering the open ones alone threw the transcript away.
+```
+
+Neither looks like a changelog entry. Both are unreadable without the diff. Watch
+for *now*, *instead of*, *used to*, *rather than*, *no longer* — and for any
+sentence whose subject is a decision rather than the code.
+
+**One thing the fresh clone will not tell you: whether the comment still matches
+the code.** For every comment whose subject this change touched, check that it
+still describes what the code does — a renamed parameter, a changed count, a
+deleted branch, a guarantee the new code no longer provides. That is a defect
+rather than a matter of taste, and a diff-scoped review is the cheapest place to
+catch it.
+
+## Then, what makes a comment good or bad
 
 - comments aren't for commit-messages or change logs (unless the code is
   genuinely in a middle-state that should be resolved soon)
@@ -59,8 +80,25 @@ worth more than every cut below.
 - A doc comment on an exported symbol says what the thing is and how to use it.
   An inline comment says why this line is written the odd way it is. A "why" in
   a doc comment is usually a commit message that escaped.
+  - **the first sentence is a verb phrase about the thing.** "Keeps the Chat
+    pinned to the bottom" passes. "The Chat opens on the last thing said" is a
+    claim about behaviour with the subject swapped, and it is how a docstring
+    gets three paragraphs deep without ever saying what the hook returns. Check
+    that the doc comment names what the thing returns, or what the boolean
+    selects, before it says anything else
+- a comment explaining *why* cites a constraint that still holds — a browser
+  behaviour, an invariant, a boundary — and not a decision someone made. "Scroll
+  positions round" is a constraint. "Underlining a passage reads as emphasis" is
+  taste being defended to a reviewer, and it stops being interesting the day the
+  PR merges
+- comments are written in the code's register, not the architecture doc's. A
+  project doc argues; a docstring for a 12-line hook states. A bolded thesis
+  sentence at this altitude is voice that leaked downhill
 - Keep a comment if removing it makes a plausible future edit wrong. Cut it if it
-  records a decision where the fork not taken has no defenders in the code.
+  records a decision where the fork not taken has no defenders in the code. A
+  rejected alternative is a keep when the reason is a mechanism someone could
+  walk into — "re-pinning on every render forces a layout pass" — and a cut when
+  the reason is taste.
 
 ## The signpost test
 
