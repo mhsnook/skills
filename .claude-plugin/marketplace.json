@@ -17,10 +17,30 @@
 			}
 		},
 		{
-			"name": "comment-review",
+			"name": "comment-review-a",
 			"source": "./",
-			"skills": ["./skills/comment-review"],
-			"description": "Review the code comments in one change — a pull request, a branch, or the current diff — for comments that have drifted from the code, that state a rule more strongly than they know it, or that bury a project-wide claim in a function comment. Reports verdicts grouped by pattern, then offers to apply them.",
+			"skills": ["./skills/comment-review-a"],
+			"description": "Trial variant A — the original copy-paste prompt, unchanged. Reviews the code comments in one change: cuts changelog comments, off-site references, restatements and padding; keeps footgun warnings and signposts. Install all three variants to compare them in real use.",
+			"version": "0.1.0",
+			"author": {
+				"name": "mhsnook"
+			}
+		},
+		{
+			"name": "comment-review-b",
+			"source": "./",
+			"skills": ["./skills/comment-review-b"],
+			"description": "Trial variant B — the structured rewrite. Same judgment as A, reorganised around drift, over-specification and invisible specs, with the extent, the report shape and the apply step spelled out. Install all three variants to compare them in real use.",
+			"version": "0.1.0",
+			"author": {
+				"name": "mhsnook"
+			}
+		},
+		{
+			"name": "comment-review-c",
+			"source": "./",
+			"skills": ["./skills/comment-review-c"],
+			"description": "Trial variant C — the hybrid. A's checklist kept short and imperative, with drift promoted to the first check, the signpost exemption given a test, and the closing rebalanced so deletion is not scored as a win. Install all three variants to compare them in real use.",
 			"version": "0.1.0",
 			"author": {
 				"name": "mhsnook"

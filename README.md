@@ -47,20 +47,46 @@ duplicate.
 | Skill | What it does |
 |---|---|
 | [`spec-debt`](skills/spec-debt/) | Read-only audit for specification debt: claims living at the wrong altitude, and claims stated more strongly than they are known. Produces a ledger and a report; edits nothing. |
-| [`comment-review`](skills/comment-review/) | The PR-time counterpart: reviews the comments in one change for drift from the code, over-stated rules, and project-wide claims buried in a function comment. No scoping interview, no ledger. |
+| [`comment-review-a`](skills/comment-review-a/) [`-b`](skills/comment-review-b/) [`-c`](skills/comment-review-c/) | Three variants of the same PR-time job — review the comments in one change. Being compared in real use; see below. |
 | [`ci-delta-reports`](skills/ci-delta-reports/) | Sets up GitHub Actions CI that reports what *changed* between base and PR — new vs resolved type errors, lint issues, formatter drift, bundle size, test failures — in one PR comment that updates in place. |
 
 `spec-debt` came from `mhsnook/journo-harness@707bc1e`, branch
 `skill/spec-debt-audit`. Its worked examples cite that project's paths; the
 method is what transfers.
 
-`spec-debt` and `comment-review` share doctrine and are edited together. They
-cannot share a file: `upload.sh` sends each `skills/<name>/` as an isolated
-tree, so a cross-directory reference resolves locally and breaks everywhere
-else. The overlap is the cut list, the signpost rule, and the absolutes table —
-`spec-debt/references/reduce.md` and `comment-review/SKILL.md`. Change one, look
-at the other. The procedure around that doctrine is genuinely different in each
-and should not be reconciled.
+### The comment-review trial
+
+Three variants of one skill, installed together and invoked by name, to find out
+which actually works before one of them ships as `comment-review`.
+
+| | What it is | Length |
+|---|---|---|
+| **A** | The original copy-paste prompt, unchanged. The control — it ran in real sessions before any of this was a skill. | 55 lines |
+| **B** | The structured rewrite. A's judgment reorganised around drift, over-specification and invisible specs, with the extent, the report shape and the apply step spelled out. | 251 lines |
+| **C** | The hybrid. A's checklist, still short and imperative, with drift promoted to the first check, the signpost exemption given a test, and the closing rebalanced so deletion stops being scored as a win. | 94 lines |
+
+The open question is whether B's structure earns its 4.5× length, or whether an
+imperative checklist just drives behaviour better than an essay does. C exists
+because the answer is plausibly "neither" — that A was mostly right and needed
+three grafts.
+
+Each variant's description tells the model not to auto-select, so asking for "a
+comment review" without naming one gets you a question rather than an arbitrary
+pick. Name the variant: `/comment-review-a`.
+
+A is verbatim apart from two typo fixes (`referance`, and `documents` for
+`document`). Notably it still says "this batch of work" rather than resolving a
+diff, which is a real difference from B and C and is being tested rather than
+patched.
+
+When one wins, the other two go and the survivor is renamed.
+
+`spec-debt` and the comment-review variants share doctrine and are edited
+together. They cannot share a file: `upload.sh` sends each `skills/<name>/` as
+an isolated tree, so a cross-directory reference resolves locally and breaks
+everywhere else. The overlap is the cut list, the signpost rule, and the
+absolutes table. Change one, look at the others. The procedure around that
+doctrine is genuinely different in each and should not be reconciled.
 
 ## Adding a skill
 

@@ -64,12 +64,12 @@ Two common presets, and the off-corner combinations matter:
   codebase previously written off as unsalvageable tractable: it needs no reach
   tests at all.
 
-A single PR or diff is the third case, and the **comment-review** skill is the
-one to reach for there: same judgment, no scoping interview, no ledger, and it
-checks the comments against the code the diff moved — which is drift detection
-this skill's per-file passes cannot do. Scoping this skill to a diff is still
-right when you want Pass B on it — reach tests and contradiction hunting against
-the doc inventory, with a ledger to show for it.
+A single PR or diff is the third case, and the **comment-review-a/b/c** skills
+are the ones to reach for there: same judgment, no scoping interview, no ledger,
+and they check the comments against the code the diff moved — which is drift
+detection this skill's per-file passes cannot do. Scoping this skill to a diff is
+still right when you want Pass B on it — reach tests and contradiction hunting
+against the doc inventory, with a ledger to show for it.
 
 **Then ask the authoritative-index question, but only if Pass B is in scope.**
 Pass B proposes moving claims into documents, and a `move` verdict with nowhere
