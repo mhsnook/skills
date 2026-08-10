@@ -1,6 +1,6 @@
 ---
 name: spec-debt
-description: 'Audit a codebase for specification debt — claims that live at the wrong altitude (a cross-module rule buried in a code comment) and claims stated more strongly than they are known ("never do X"). Runs in two modes: a cheap comment-reduction pass over a PR or diff, and a full audit that adds reach tests, contradiction hunting, and promotion proposals. Produces a ledger and a report, then offers to apply. Triggers: audit spec debt, review the comments in this PR, find spec spaghetti, are our comments over-specified, why do the docs disagree with the code, despecify this codebase.'
+description: 'Audit a codebase for specification debt — claims that live at the wrong altitude (a cross-module rule buried in a code comment) and claims stated more strongly than they are known ("never do X"). Runs in two modes: a cheap comment-reduction sweep over a folder or a whole project, and a full audit that adds reach tests, contradiction hunting, and promotion proposals. Produces a ledger and a report, then offers to apply. For the comments in a single pull request or diff, use the comment-review skill instead. Triggers: audit spec debt, find spec spaghetti, why do the docs disagree with the code, is this codebase over-specified, despecify this codebase, legacy comment sweep.'
 license: MIT
 ---
 
@@ -59,11 +59,17 @@ Two independent questions. Ask both, in one batch, before reading any code.
 
 Two common presets, and the off-corner combinations matter:
 
-- **PR review** — small extent, Pass A, applied on approval. The everyday use.
 - **Full audit** — whole project, both passes, chunked.
 - **Legacy sweep** — whole project, **Pass A only**. This is what makes a
   codebase previously written off as unsalvageable tractable: it needs no reach
   tests at all.
+
+A single PR or diff is the third case, and the **comment-review** skill is the
+one to reach for there: same judgment, no scoping interview, no ledger, and it
+checks the comments against the code the diff moved — which is drift detection
+this skill's per-file passes cannot do. Scoping this skill to a diff is still
+right when you want Pass B on it — reach tests and contradiction hunting against
+the doc inventory, with a ledger to show for it.
 
 **Then ask the authoritative-index question, but only if Pass B is in scope.**
 Pass B proposes moving claims into documents, and a `move` verdict with nowhere

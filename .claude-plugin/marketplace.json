@@ -17,6 +17,16 @@
 			}
 		},
 		{
+			"name": "comment-review",
+			"source": "./",
+			"skills": ["./skills/comment-review"],
+			"description": "Review the code comments in one change — a pull request, a branch, or the current diff — for comments that have drifted from the code, that state a rule more strongly than they know it, or that bury a project-wide claim in a function comment. Reports verdicts grouped by pattern, then offers to apply them.",
+			"version": "0.1.0",
+			"author": {
+				"name": "mhsnook"
+			}
+		},
+		{
 			"name": "ci-delta-reports",
 			"source": "./",
 			"skills": ["./skills/ci-delta-reports"],

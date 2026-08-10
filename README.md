@@ -47,11 +47,20 @@ duplicate.
 | Skill | What it does |
 |---|---|
 | [`spec-debt`](skills/spec-debt/) | Read-only audit for specification debt: claims living at the wrong altitude, and claims stated more strongly than they are known. Produces a ledger and a report; edits nothing. |
+| [`comment-review`](skills/comment-review/) | The PR-time counterpart: reviews the comments in one change for drift from the code, over-stated rules, and project-wide claims buried in a function comment. No scoping interview, no ledger. |
 | [`ci-delta-reports`](skills/ci-delta-reports/) | Sets up GitHub Actions CI that reports what *changed* between base and PR — new vs resolved type errors, lint issues, formatter drift, bundle size, test failures — in one PR comment that updates in place. |
 
 `spec-debt` came from `mhsnook/journo-harness@707bc1e`, branch
 `skill/spec-debt-audit`. Its worked examples cite that project's paths; the
 method is what transfers.
+
+`spec-debt` and `comment-review` share doctrine and are edited together. They
+cannot share a file: `upload.sh` sends each `skills/<name>/` as an isolated
+tree, so a cross-directory reference resolves locally and breaks everywhere
+else. The overlap is the cut list, the signpost rule, and the absolutes table —
+`spec-debt/references/reduce.md` and `comment-review/SKILL.md`. Change one, look
+at the other. The procedure around that doctrine is genuinely different in each
+and should not be reconciled.
 
 ## Adding a skill
 
