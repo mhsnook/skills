@@ -1,18 +1,10 @@
 ---
 name: comment-review-a
-description: 'Trial variant A of three for reviewing the code comments in one change — a pull request, a branch, or the current diff — cutting changelog comments, off-site references, restatements and padding while keeping footgun warnings and signposts. Variants A, B and C are being compared in real use, so run the one the user names rather than auto-selecting between them; if the user asks for a comment review without naming a variant, ask which. For a whole codebase rather than one change, use the spec-debt skill.'
+description: 'Review the code comments in a batch of work — a pull request, a branch, or the current diff — cutting changelog comments, references to PRs and issues, restatements of the code or of a project doc, and padding, while keeping the comments that explain why non-obvious code exists, name a contract others depend on, or warn about a footgun. Triggers: review the comments in this PR, check the comments before I push, are these comments over-specified, too many comments in this diff, comment review. For a whole codebase rather than one change, use the spec-debt skill.'
 license: MIT
 ---
 
-# Comment review — variant A
-
-The original prompt, unchanged. It is the control in a three-way trial: the
-version that ran in real sessions by copy-paste before any of this was a skill,
-so it is the thing B and C have to beat.
-
-Everything below the rule is that prompt verbatim.
-
----
+# Comment review
 
 Code comments that explain where and when we have done something tricky, or a
 bit different, make everyone happier and smarter. But excessive code comments

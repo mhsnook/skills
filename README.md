@@ -61,9 +61,9 @@ which actually works before one of them ships as `comment-review`.
 
 | | What it is | Length |
 |---|---|---|
-| **A** | The original copy-paste prompt, unchanged. The control — it ran in real sessions before any of this was a skill. | 55 lines |
-| **B** | The structured rewrite. A's judgment reorganised around drift, over-specification and invisible specs, with the extent, the report shape and the apply step spelled out. | 251 lines |
-| **C** | The hybrid, and the working candidate. A's checklist, still short and imperative, led by one question — is this comment true and useful to someone who cloned the repo with no history — with tests added for the rules A leaves unmeasurable, and a closing that stops scoring deletion as a win. | 132 lines |
+| **A** | The original copy-paste prompt, unchanged. The control — it ran in real sessions before any of this was a skill. | 47 lines |
+| **B** | The structured rewrite. A's judgment reorganised around drift, over-specification and invisible specs, with the extent, the report shape and the apply step spelled out. | 244 lines |
+| **C** | The hybrid, and the working candidate. A's checklist, still short and imperative, led by one question — is this comment true and useful to someone who cloned the repo with no history — with tests added for the rules A leaves unmeasurable, and a closing that stops scoring deletion as a win. | 128 lines |
 
 The open question is whether B's structure earns its length, or whether an
 imperative checklist just drives behaviour better than an essay does. C exists
@@ -80,9 +80,15 @@ on explicit changelog phrasing. Grafting to C rather than to all three makes the
 trial's form comparison dirty, which was the accepted cost of not field-testing a
 known blind spot.
 
-Each variant's description tells the model not to auto-select, so asking for "a
-comment review" without naming one gets you a question rather than an arbitrary
-pick. Name the variant: `/comment-review-a`.
+**Nothing inside the three `SKILL.md` files says it is a variant.** No trial
+framing, no "this is the control", no instruction to defer to a named sibling —
+each reads as the finished skill it is proposing to be. Labelling the context
+would test the label. Their titles are all `# Comment review` and the directory
+suffix is the only thing telling them apart, so this section is the only map.
+
+The consequence is that all three compete to auto-trigger on "review the comments
+in this PR", and which one wins is arbitrary. Invoke by name while the trial runs:
+`/comment-review-a`.
 
 A is verbatim apart from two typo fixes (`referance`, and `documents` for
 `document`). Notably it still says "this batch of work" rather than resolving a

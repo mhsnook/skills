@@ -1,14 +1,10 @@
 ---
 name: comment-review-c
-description: 'Trial variant C of three for reviewing the code comments in one change — a pull request, a branch, or the current diff — checking first whether each comment still matches the code and whether it would survive in a fresh clone with no git history, then cutting restatements, off-site references and padding while keeping footgun warnings and signposts. Variants A, B and C are being compared in real use, so run the one the user names rather than auto-selecting between them; if the user asks for a comment review without naming a variant, ask which. For a whole codebase rather than one change, use the spec-debt skill.'
+description: 'Review the code comments in a batch of work — a pull request, a branch, or the current diff — asking of each whether it is true and useful to someone who cloned the repo with no history, then checking it against what makes a comment good or bad: restatements, references to PRs and issues, and padding go; footgun warnings and signposts stay. Triggers: review the comments in this PR, check the comments before I push, are these comments over-specified, too many comments in this diff, comment review, do these comments still match the code. For a whole codebase rather than one change, use the spec-debt skill.'
 license: MIT
 ---
 
-# Comment review — variant C
-
-Variant A's checklist, led by one question — would this comment survive a clone
-with no history — and with tests added for the rules A states but leaves
-unmeasurable.
+# Comment review
 
 Code comments that explain where and when we did something tricky, or a bit
 different, make everyone happier and smarter. But excessive code comments cause

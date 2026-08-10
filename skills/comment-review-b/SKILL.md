@@ -1,13 +1,10 @@
 ---
 name: comment-review-b
-description: 'Trial variant B of three for reviewing the code comments in one change — a pull request, a branch, or the current diff — organised around the three ways a comment goes wrong: it has drifted from what the code now does, it says more than it knows, or it buries a project-wide rule where nobody will read it. Reports verdicts grouped by pattern, then offers to apply them. Variants A, B and C are being compared in real use, so run the one the user names rather than auto-selecting between them; if the user asks for a comment review without naming a variant, ask which. For a whole codebase rather than one change, use the spec-debt skill.'
+description: 'Review the code comments in one change — a pull request, a branch, or the current diff — for the three ways a comment goes wrong: it has drifted from what the code now does, it says more than it knows, or it buries a project-wide rule where nobody will read it. Reports cut, shorten, reword and keep verdicts grouped by pattern, then offers to apply them. Triggers: review the comments in this PR, check the comments before I push, are these comments over-specified, too many comments in this diff, comment review, do these comments still match the code. For a whole codebase rather than one change, use the spec-debt skill.'
 license: MIT
 ---
 
-# Comment review — variant B
-
-The structured rewrite: variant A's judgment reorganised around three failure
-modes, with the extent, the report shape and the apply step spelled out.
+# Comment review
 
 Comments that explain where and when we did something tricky, or a bit
 different, make everyone happier and smarter. Excessive comments cost the
@@ -245,7 +242,3 @@ inferred, contradiction hunting across the doc inventory, and a resumable ledger
 — use the **spec-debt** skill. This skill is its PR-time counterpart and applies
 the same judgment; spec-debt's `references/reduce.md` is the audit-scale
 statement of it.
-
-**comment-review-a** and **comment-review-c** are the other two variants in the
-trial. A is the original prompt this was rewritten from; C is A with drift, the
-signpost test, and a rebalanced closing.

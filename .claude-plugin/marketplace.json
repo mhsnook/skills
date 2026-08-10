@@ -9,7 +9,9 @@
 		{
 			"name": "spec-debt",
 			"source": "./",
-			"skills": ["./skills/spec-debt"],
+			"skills": [
+				"./skills/spec-debt"
+			],
 			"description": "Read-only audit of a codebase for specification debt — claims that live at the wrong altitude (a cross-module rule buried in a code comment, or a local note promoted into a project doc) and claims stated more strongly than they are known. Produces a ledger and a report; edits nothing and asks nothing.",
 			"version": "0.1.0",
 			"author": {
@@ -19,8 +21,10 @@
 		{
 			"name": "comment-review-a",
 			"source": "./",
-			"skills": ["./skills/comment-review-a"],
-			"description": "Trial variant A — the original copy-paste prompt, unchanged. Reviews the code comments in one change: cuts changelog comments, off-site references, restatements and padding; keeps footgun warnings and signposts. Install all three variants to compare them in real use.",
+			"skills": [
+				"./skills/comment-review-a"
+			],
+			"description": "Review the code comments in a batch of work — a pull request, a branch, or the current diff — cutting changelog comments, references to PRs and issues, restatements of the code or of a project doc, and padding, while keeping the comments that explain why non-obvious code exists, name a contract, or warn about a footgun.",
 			"version": "0.1.0",
 			"author": {
 				"name": "mhsnook"
@@ -29,8 +33,10 @@
 		{
 			"name": "comment-review-b",
 			"source": "./",
-			"skills": ["./skills/comment-review-b"],
-			"description": "Trial variant B — the structured rewrite. Same judgment as A, reorganised around drift, over-specification and invisible specs, with the extent, the report shape and the apply step spelled out. Install all three variants to compare them in real use.",
+			"skills": [
+				"./skills/comment-review-b"
+			],
+			"description": "Review the code comments in one change — a pull request, a branch, or the current diff — for comments that have drifted from the code, that state a rule more strongly than they know it, or that bury a project-wide claim in a function comment. Reports verdicts grouped by pattern, then offers to apply them.",
 			"version": "0.1.0",
 			"author": {
 				"name": "mhsnook"
@@ -39,8 +45,10 @@
 		{
 			"name": "comment-review-c",
 			"source": "./",
-			"skills": ["./skills/comment-review-c"],
-			"description": "Trial variant C — the hybrid, and the working candidate. A's checklist kept short and imperative, with two questions ahead of it (does the comment still match the code, and would it survive a fresh clone with no git history), tests for the rules A leaves unmeasurable, and a closing that stops scoring deletion as a win. Install all three variants to compare them in real use.",
+			"skills": [
+				"./skills/comment-review-c"
+			],
+			"description": "Review the code comments in a batch of work — a pull request, a branch, or the current diff — asking of each whether it is true and useful to someone who cloned the repo with no history, then checking it against what makes a comment good or bad.",
 			"version": "0.1.0",
 			"author": {
 				"name": "mhsnook"
@@ -49,7 +57,9 @@
 		{
 			"name": "ci-delta-reports",
 			"source": "./",
-			"skills": ["./skills/ci-delta-reports"],
+			"skills": [
+				"./skills/ci-delta-reports"
+			],
 			"description": "Set up GitHub Actions CI that reports what changed between the base branch and the PR — new vs resolved type errors, lint issues, formatter drift, bundle size, and test failures — in one PR comment that updates in place.",
 			"version": "0.1.0",
 			"author": {
