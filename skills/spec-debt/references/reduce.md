@@ -69,6 +69,16 @@ const offerKinds = ['reference', 'quote']
 
 One line, self-evident, nothing to navigate. Delete it.
 
+## Two tests before you cut
+
+**The delete test.** Remove it. Does anything become unknowable?
+
+**The future-edit test.** Keep it if removing it makes a plausible future edit
+wrong. Cut it if it records a decision where the fork not taken has no defenders
+left in the code — the alternative it argues against is one nobody is going to
+try. This is the sharper of the two, because it is answerable against the code
+in front of you rather than against what a reader might have wanted to know.
+
 ## Cut list
 
 **A comment is not a commit message or a changelog.** "Previously this used
@@ -130,6 +140,19 @@ or the rare ball of wax that has to live in one method, earns a long comment —
 and this pass leaves it alone. The distinction is padding versus density: cut
 words that repeat, keep words that carry. If shortening would lose a
 condition, a number, or a qualifier, it is density.
+
+## What each carrier is for
+
+Getting this wrong produces comments that are individually fine and collectively
+useless. The fix is a move of a few lines rather than a deletion, so it belongs
+in this pass even though it is not a cut.
+
+- **A doc comment on an exported symbol** says what the thing is and how to use
+  it. It is written for someone who will never read the body.
+- **An inline comment** says why *this line* is written the odd way it is.
+
+A "why" in a doc comment is usually a commit message that escaped. Pass B's
+altitude ladder sorts claims by reach; this sorts them by who is reading.
 
 ## The file header
 
