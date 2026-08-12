@@ -53,6 +53,32 @@ duplicate.
 `skill/spec-debt-audit`. Its worked examples cite that project's paths; the
 method is what transfers.
 
+## Hooks
+
+| Hook | What it does |
+|---|---|
+| [`naming-pass`](hooks/naming-pass.md) | Ends every code-editing turn with one short pass: names too short to carry their meaning, and comments covering for names that should have said it themselves. Fires only when the turn touched code, and only once per turn. |
+
+This one is a plugin with no skill in it — the payload is
+[`hooks/naming-pass.json`](hooks/naming-pass.json), which wires two events:
+`PostToolUse` on `Edit|Write|NotebookEdit` notes any code file that was
+touched, and `Stop` hands Claude the checklist in
+[`hooks/naming-pass.md`](hooks/naming-pass.md) and lets the turn continue.
+
+```bash
+claude plugin install naming-pass@mhsnook --scope user
+```
+
+Edit `hooks/naming-pass.md` to change what the pass asks — it is plain prose
+handed straight to Claude, not a template. Two environment variables tune the
+rest: `NAMING_PASS_EXTENSIONS` replaces the list of extensions that count as
+code, and `NAMING_PASS_DISABLE=1` turns the whole thing off without
+uninstalling it.
+
+The pass never fires twice in a row. Claude Code sets `stop_hook_active` on a
+`Stop` that a stop hook itself caused, and the script allows that stop rather
+than asking for a pass on the pass.
+
 ## Adding a skill
 
 ```bash
@@ -73,6 +99,22 @@ at the new directory:
 
 One plugin per skill keeps the install command specific
 (`/plugin install my-skill@mhsnook`) and mirrors how `npx skills add -s` works.
+
+A plugin that ships hooks instead of a skill swaps the `skills` key for
+`hooks`, pointing at a config file rather than a directory:
+
+```json
+{
+	"name": "my-hook",
+	"source": "./",
+	"hooks": "./hooks/my-hook.json",
+	"description": "…"
+}
+```
+
+The path has to be explicit. Every plugin here sets `"source": "./"`, so the
+repo root is the plugin root for all of them, and a hook config at the default
+`hooks/hooks.json` would attach itself to every plugin in the marketplace.
 
 ### Frontmatter must stay spec-clean
 
@@ -101,3 +143,9 @@ it sends anything.
 Nothing reaches all three, so the working setup is `link-local.sh` plus
 `upload.sh`. The plugin and `npx skills` paths are for other machines and other
 people.
+
+That table is about skills. Hooks are narrower: only the two plugin rows carry
+them. `npx skills`, `link-local.sh`, and `upload.sh` all move `SKILL.md` files
+and nothing else, so `naming-pass` reaches a local session by
+`claude plugin install`, and a cloud session only by being named in that
+repo's `.claude/settings.json`.

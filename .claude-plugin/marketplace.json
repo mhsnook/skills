@@ -25,6 +25,16 @@
 			"author": {
 				"name": "mhsnook"
 			}
+		},
+		{
+			"name": "naming-pass",
+			"source": "./",
+			"hooks": "./hooks/naming-pass.json",
+			"description": "Ends every code-editing turn with one short naming-and-comments pass: names too short to carry their meaning, and comments covering for names that should have said it themselves. Fires only when the turn actually touched code, and only once per turn.",
+			"version": "0.1.0",
+			"author": {
+				"name": "mhsnook"
+			}
 		}
 	]
 }

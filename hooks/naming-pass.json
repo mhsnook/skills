@@ -1,0 +1,30 @@
+{
+	"hooks": {
+		"PostToolUse": [
+			{
+				"matcher": "Edit|Write|NotebookEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PLUGIN_ROOT}/hooks/naming-pass.sh",
+						"args": ["record"],
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PLUGIN_ROOT}/hooks/naming-pass.sh",
+						"args": ["check"],
+						"timeout": 10,
+						"statusMessage": "Naming pass"
+					}
+				]
+			}
+		]
+	}
+}
