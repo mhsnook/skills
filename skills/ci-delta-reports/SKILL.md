@@ -95,17 +95,12 @@ Then ask the policy questions. These are the ones people have real opinions abou
 
 Ask these as a batch, not one at a time.
 
-**Formatting is scoped differently, and it is worth saying why.** The formatter
-gate fails on any file the PR *touched* that is not formatted — new drift or
-drift that was already there — and never on a file the PR left alone. Anything
-you edited ships clean, no exceptions; the pre-existing mess in files you did
-not open is somebody's future PR, not a reason to block this one. That also
-keeps a formatter-config change mergeable: it dirties hundreds of untouched
-files at once, which `no-new` would treat as hundreds of new issues. The
-repo-wide total still goes in the comment, with a trend arrow.
-[references/checks.md](references/checks.md) has the mechanics and the three
-ways this gate fails silently. Offer plain `report-only` if they want the number
-without the teeth, but lead with this.
+**Formatting is scoped differently.** It is not linting: the formatter applies
+to every file the PR touched, every time — new drift or old — and never to a
+file it left alone. The repo-wide total still goes in the comment, with a trend
+arrow. Lead with this; offer plain `report-only` if they want the number
+without the teeth. [references/checks.md](references/checks.md) has the
+mechanics and the three ways this gate fails silently.
 
 ## Step 3 — generate
 

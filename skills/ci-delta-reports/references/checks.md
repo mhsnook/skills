@@ -73,21 +73,9 @@ very differently from eighty spread across `.ts` and `.tsx`, and one stray
 
 ### The gate is scoped to touched files, not to the delta
 
-This is the one check that does **not** gate on `no-new`, and the difference is
-not a detail:
-
-- **Every file the PR touched must be formatted clean, new drift or old.** You
-  edited it, so you own it. "That file was already unformatted" is not a defence
-  — running the formatter on a file you are editing anyway costs nothing, and
-  it is how the repo-wide number actually reaches zero.
-- **A file the PR did not touch never fails the build**, even when it is newly
-  unformatted. Change a formatter option or bump the formatter, and hundreds of
-  untouched files start drifting at once. Under `no-new` that PR is unmergeable
-  for a reason nobody can act on; under this rule it passes, and the comment
-  still reports the jump.
-
-`no-new` gets both of those backwards. It blocks the config change and waves
-through the already-dirty file you just edited.
+Formatting is not linting. The formatter applies to every file the PR touched,
+every time — new drift or old — and never to a file it left alone. So this is
+the one check that does not gate on `no-new`.
 
 Mechanically: the head job emits `touched.txt` — `git diff --name-only
 --diff-filter=d <base sha> HEAD`, sorted — and the report step intersects it
