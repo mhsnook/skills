@@ -44,6 +44,11 @@ git diff --name-only | grep -Ev "$EXCLUDE" | sort >"$OUT/format.txt"
 git checkout -- .
 
 # Never let a missing file break the render step.
+#
+# `touched.txt` is deliberately NOT in this list. The workflow writes it into
+# the same directory on the head tree only, and the formatter gate reads its
+# ABSENCE as "the step that lists this PR's files did not run" — an empty file
+# here would turn that failure into a silent pass.
 for f in typecheck lint format; do
 	[ -f "$OUT/$f.txt" ] || : >"$OUT/$f.txt"
 done

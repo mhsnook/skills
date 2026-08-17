@@ -59,7 +59,7 @@ Each check then adds only its own run time, listed below as *marginal* cost.
 |---|-------|--------------------------|-------|---------------|
 | 1 | **Type errors** | New / resolved, with line shifts discounted | both | one typecheck per tree |
 | 2 | **Lint** | New / resolved, several linters merged into one list | both | runs beside the typecheck, so ≈ free |
-| 3 | **Formatter drift** | How many files the formatter would still rewrite, grouped by extension | both | one format pass per tree, ~seconds |
+| 3 | **Formatter drift** | Which touched files are still unformatted, plus the repo-wide total as a trend | both | one format pass per tree, ~seconds |
 | 4 | **Bundle size** | Eager set, entry chunk, CSS, and which vendor chunks stopped being cacheable | both | **forces the build**, then ≈ free to measure |
 | 5 | **Tests** | Pass / fail with failure detail inline | head | the suite's own runtime |
 | 6 | **Build content scan** | Code that must never ship, found in the built output | head | a grep over the build, seconds |
@@ -82,8 +82,8 @@ is worse than "it depends on your build".
 Then ask the policy questions. These are the ones people have real opinions about:
 
 1. **Gate or report?** Per check: fail the build on new issues, or comment only?
-   A sensible default is gate on type errors and tests, report-only on formatter
-   drift, and let them decide lint.
+   A sensible default is gate on type errors and tests, and let them decide lint.
+   Formatting is the exception — see below.
 2. **How strict on new issues?** Fail on the first new one, or allow a budget?
 3. **Vendored and generated files** — in or out of the lint and format deltas?
    Default them out; nobody reviewing the PR can act on them.
@@ -95,6 +95,18 @@ Then ask the policy questions. These are the ones people have real opinions abou
 
 Ask these as a batch, not one at a time.
 
+**Formatting is scoped differently, and it is worth saying why.** The formatter
+gate fails on any file the PR *touched* that is not formatted — new drift or
+drift that was already there — and never on a file the PR left alone. Anything
+you edited ships clean, no exceptions; the pre-existing mess in files you did
+not open is somebody's future PR, not a reason to block this one. That also
+keeps a formatter-config change mergeable: it dirties hundreds of untouched
+files at once, which `no-new` would treat as hundreds of new issues. The
+repo-wide total still goes in the comment, with a trend arrow.
+[references/checks.md](references/checks.md) has the mechanics and the three
+ways this gate fails silently. Offer plain `report-only` if they want the number
+without the teeth, but lead with this.
+
 ## Step 3 — generate
 
 Copy the templates from `assets/` into `.github/`, then adapt. Every line that
@@ -104,9 +116,13 @@ bug.
 
 - `workflow.yml` → `.github/workflows/pr-checks.yml`. Delete the **steps** for
   checks they did not pick, keeping the three jobs. Drop the build steps from
-  both jobs if they took neither check 4 nor check 6.
+  both jobs if they took neither check 4 nor check 6. The "List files this PR
+  touches" step exists only to feed the formatter gate — keep it if they took
+  check 3 with the default policy, drop it if formatting is report-only.
 - `collect-static.sh` → swap in the real typecheck, lint, and format commands,
-  and set `EXCLUDE` from their answer about vendored files. Keep the shape:
+  and set `EXCLUDE` from their answer about vendored files. Read the commands
+  out of `package.json` `scripts` rather than asking which formatter they use;
+  if two formatters cover different file types, run both. Keep the shape:
   read-only checks concurrent, formatter last.
 - `measure-bundle.cjs` → its `measure()` assumes an `index.html` entry point.
   For a library or server bundle, walk the output directory instead.
@@ -134,6 +150,10 @@ Then confirm by reading, not by running:
   the comment still posts when a check job fails.
 - The `base` job checks out `.github/ci/` from the head SHA. Both trees must be
   measured by the same scripts, or editing a script reads as a code change.
+- If the formatter gate is on: the head job writes `touched.txt`, and the paths
+  in it have the same shape as the ones in `format.txt` — both repo-root-relative,
+  no `./`. A mismatch makes the intersection empty and the gate passes forever.
+  Check one path from each list against the other by eye.
 - Every step the workflow references exists as a file, and every file the
   workflow does not reference has been deleted.
 - No `CONFIGURE` markers survive.
@@ -153,5 +173,7 @@ first run is the actual test.
   body over 65,536 characters, and a mechanical refactor will find that limit.
 - **The formatter runs last in its job.** It rewrites files, and the set it
   rewrote is the signal. Restore the tree with `git checkout -- .` afterwards.
+- **A file you touched ships formatted; a file you did not is not your problem.**
+  The formatter gate is scoped to the PR's own footprint, not to the delta.
 - **A missing report is a failure, not a pass.** If a runner crashes before
   writing output, say so in the comment and fail the gate.

@@ -95,6 +95,28 @@ Set `proximity` to `0` for a plain set difference. Do that whenever the unit of
 change is a whole file — formatter drift, for instance, where there is no line
 number to shift.
 
+## Why one gate ignores the delta
+
+Every other check gates on what the PR *changed*. The formatter gates on what
+the PR *touched*, which is a different axis, and mixing them up produces a
+gate people route around:
+
+|  | Already unformatted, you edited it | Newly unformatted, you never opened it |
+|---|---|---|
+| `no-new` | passes — wrong, you owned that file | fails — wrong, you cannot act on it |
+| `touched-clean` | fails | passes |
+
+The right-hand column is the whole reason. Change a formatter option and the
+drift set jumps by hundreds of files in one commit; a delta gate reads that as
+hundreds of new issues and makes the config change unmergeable. The left-hand
+column is the reason it is stricter, not laxer, than the delta: the file you
+just edited is exactly the one where formatting it costs nothing.
+
+So the report step needs a third input beyond the two trees — the PR's own file
+list — and the gate rule `touched-clean` reads the intersection rather than
+`added`. The delta is still computed and still reported; it just is not what
+fails the build.
+
 ## Why the formatter runs last in its script
 
 Read-only checks run concurrently with `&` and `wait`, since the typechecker is

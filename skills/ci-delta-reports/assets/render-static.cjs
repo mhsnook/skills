@@ -70,20 +70,46 @@ module.exports = function render({ head, base, out }) {
 	const headFiles = readLines(`${head}/format.txt`)
 	const fmt = differential(readLines(`${base}/format.txt`), headFiles, parsers.file, 0)
 	const ext = byExtension(headFiles)
+
+	// The blocking half. Totals and the trend are context; what fails the build
+	// is a file this PR touched that the formatter would still rewrite —
+	// whether that drift is new or was there all along. Both lists are
+	// repo-root-relative and sorted, so a plain Set intersection is enough.
+	//
+	// An absent touched.txt is NOT an empty PR. It means the workflow step that
+	// writes it did not run, so record that and let the gate refuse to pass.
+	const touchedKnown = fs.existsSync(`${head}/touched.txt`)
+	const touched = new Set(readLines(`${head}/touched.txt`))
+	const dirtyTouched = headFiles.filter((f) => touched.has(f))
+	const elsewhere = fmt.added.filter((e) => !touched.has(e.file))
+
 	write(
 		'30-format',
 		[
 			'#### Formatter drift',
 			'',
-			'Files the formatter would still rewrite — debt to drive toward **0** by reformatting legacy files as you touch them.',
+			dirtyTouched.length ?
+				`❌ **${dirtyTouched.length} file(s) this PR touches are not formatted.** Run the formatter and commit — a file you edited ships clean, no exceptions.`
+			: touchedKnown ? '✅ Every file this PR touches is formatted.'
+			: '⚠️ No list of touched files was produced, so the touched-file gate could not run.',
+			listBlock('Touched and unformatted', dirtyTouched, CAP),
+			'',
+			'Repo-wide drift below is **context, not a gate** — debt to drive toward **0** by reformatting legacy files as you touch them.',
 			'',
 			countSummary(fmt, 'file(s)', { showTrend: true }),
 			ext.length ? '\n**By type:** ' + ext.map(([e, n]) => `\`${e}\` ${n}`).join(' · ') : null,
-			listBlock('Newly unformatted', fmt.added, CAP),
+			listBlock('Newly unformatted elsewhere', elsewhere, CAP),
 			listBlock('Reformatted', fmt.resolved, CAP),
 		]
 			.filter((l) => l !== null)
 			.join('\n'),
-		{ check: 'format', new: fmt.added.length, resolved: fmt.resolved.length, total: fmt.head }
+		{
+			check: 'format',
+			new: fmt.added.length,
+			resolved: fmt.resolved.length,
+			total: fmt.head,
+			touched: dirtyTouched.length,
+			touchedKnown,
+		}
 	)
 }

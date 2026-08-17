@@ -52,8 +52,14 @@ workflows get disabled.
 **Normalised form:** a sorted list of file paths — the files the formatter
 would rewrite.
 
-Run the formatter in write mode, then read `git diff --name-only`. That is one
-pass instead of two, and it gives the exact file set rather than a count. Then
+Run whatever formatter the repo already runs. Read its command out of the
+`scripts` block rather than asking — a repo that has a `format` script has
+already made this decision, and the check works the same whichever tool is
+behind it. If two formatters are configured for different file types, run both
+and concatenate; the output is a path list either way.
+
+Run it in write mode, then read `git diff --name-only`. That is one pass
+instead of two, and it gives the exact file set rather than a count. Then
 `git checkout -- .`.
 
 Do not use `--check` mode. It exits non-zero and prints a list in a different
@@ -65,9 +71,50 @@ Group the remaining drift by extension in the comment. Eighty `.sql` files read
 very differently from eighty spread across `.ts` and `.tsx`, and one stray
 `.css` is easy to spot and fold into the current PR.
 
-**Gate advice:** `report-only`, nearly always. Formatting debt is real but
-blocking on it annoys people out of proportion to the harm. The trend arrow
-does the work.
+### The gate is scoped to touched files, not to the delta
+
+This is the one check that does **not** gate on `no-new`, and the difference is
+not a detail:
+
+- **Every file the PR touched must be formatted clean, new drift or old.** You
+  edited it, so you own it. "That file was already unformatted" is not a defence
+  — running the formatter on a file you are editing anyway costs nothing, and
+  it is how the repo-wide number actually reaches zero.
+- **A file the PR did not touch never fails the build**, even when it is newly
+  unformatted. Change a formatter option or bump the formatter, and hundreds of
+  untouched files start drifting at once. Under `no-new` that PR is unmergeable
+  for a reason nobody can act on; under this rule it passes, and the comment
+  still reports the jump.
+
+`no-new` gets both of those backwards. It blocks the config change and waves
+through the already-dirty file you just edited.
+
+Mechanically: the head job emits `touched.txt` — `git diff --name-only
+--diff-filter=d <base sha> HEAD`, sorted — and the report step intersects it
+with head's drift list. The gate rule is `touched-clean`, and it fails on that
+intersection.
+
+Three things to get right, all of which fail silently:
+
+- **Both lists must use the same path shape.** `git diff --name-only` gives
+  repo-root-relative paths with no `./` prefix, on both sides, which is exactly
+  why the drift list is produced that way too. Swap in `--list-different` or a
+  formatter run from a subdirectory and the paths stop matching — the
+  intersection is then empty on every PR and the gate silently never fires.
+- **Diff against the right commit.** With the default `pull_request` checkout,
+  `HEAD` is the merge ref, so a two-dot diff against `base.sha` is the PR's own
+  footprint. Check out `head.sha` instead and two-dot silently widens to every
+  file that landed on base since the branch diverged — use three-dot there.
+- **An absent `touched.txt` is not an empty PR.** Treat a missing list as a
+  crashed step and fail, the same as any other missing measurement. Otherwise a
+  broken workflow reads as a clean bill of health.
+
+Vendored and generated paths are filtered out of the drift list before any of
+this, so a touched file under `EXCLUDE` cannot block the PR. That is deliberate
+— checking in a regenerated file should not require formatting it.
+
+**Gate advice:** `touched-clean`. The repo-wide total stays report-only, with
+the trend arrow doing that work.
 
 ## 4. Bundle size
 

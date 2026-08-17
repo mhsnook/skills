@@ -42,6 +42,23 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile # CONFIGURE
 
+      # The formatter gate is scoped to the files this PR touches, so the head
+      # tree has to say which those are. Two-dot diff, because the default
+      # checkout for `pull_request` is the MERGE ref — base already merged in —
+      # so base.sha..HEAD is exactly this PR's own changes. If you change the
+      # checkout to `ref: github.event.pull_request.head.sha`, switch this to
+      # the three-dot form and drop the shallow fetch, or you will pick up
+      # every file that landed on base since the branch diverged.
+      - name: List files this PR touches
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          mkdir -p /tmp/out/static
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git diff --name-only --diff-filter=d "$BASE_SHA" HEAD |
+            sort >/tmp/out/static/touched.txt
+          wc -l /tmp/out/static/touched.txt
+
       # Checks 1–3. Read-only checks run concurrently inside the script; the
       # formatter runs last because it rewrites files.
       - name: Static checks
