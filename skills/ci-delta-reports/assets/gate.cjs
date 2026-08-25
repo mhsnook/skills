@@ -12,13 +12,15 @@ const path = require('path')
 // CONFIGURE: strictness per check.
 //   'report-only'      never fails — the comment is the whole point
 //   'no-new'           fails when this PR adds any issue of this kind
+//   'touched-clean'    fails on any issue in a file this PR touched, new or
+//                      pre-existing; issues in untouched files never fail
 //   { maxNew: N }      allows up to N new issues
 //   { maxTotal: N }    fails on the absolute count, ignoring the delta
 //   { maxGzDelta: N }  bundle only — fails when gzipped bytes grow by over N
 const POLICY = {
 	typecheck: 'no-new',
 	lint: 'no-new',
-	format: 'report-only',
+	format: 'touched-clean',
 	tests: 'no-new',
 	bundle: { maxGzDelta: 10 * 1024 },
 }
@@ -31,6 +33,17 @@ function verdict(check, data) {
 	// absence as a failure for every gated check, or a broken build reads as
 	// "no change" and merges clean.
 	if (data.missing) return 'the step produced no measurement (crashed or was skipped)'
+
+	// Scoped to the PR's own footprint rather than to the delta. A repo-wide
+	// reformat that dirties files nobody edited is not this PR's problem; a
+	// file this PR edited is, even if it was already dirty before.
+	if (rule === 'touched-clean') {
+		if (!data.touchedKnown)
+			return 'no list of touched files was produced, so the touched-file gate could not run'
+		return data.touched > 0 ?
+				`${data.touched} touched file(s) still have issues — run the formatter on the files you edited`
+			:	null
+	}
 
 	if (check === 'tests') {
 		return data.failed > 0 ? `${data.failed} failing test(s)` : null

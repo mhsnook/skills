@@ -95,6 +95,17 @@ Set `proximity` to `0` for a plain set difference. Do that whenever the unit of
 change is a whole file — formatter drift, for instance, where there is no line
 number to shift.
 
+## Why one gate ignores the delta
+
+Formatting is not linting. The formatter applies to every file you touch, every
+time, so the question is not "did this PR add drift?" but "is anything this PR
+touched still unformatted?"
+
+That makes it the one check whose gate needs a third input beyond the two trees:
+the PR's own file list. `touched-clean` reads its intersection with head's
+drift rather than `added`. The delta is still computed and still reported; it
+just is not what fails the build.
+
 ## Why the formatter runs last in its script
 
 Read-only checks run concurrently with `&` and `wait`, since the typechecker is
