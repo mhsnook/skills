@@ -63,7 +63,7 @@ function vendorSection(base, head) {
 	return `**Vendor chunks changed:**\n${rows.join('\n')}${stable}`
 }
 
-module.exports = function render({ head, base, out }) {
+function render({ head, base, out }) {
 	fs.mkdirSync(out, { recursive: true })
 	const h = load(head)
 	const b = load(base)
@@ -117,4 +117,11 @@ module.exports = function render({ head, base, out }) {
 	)
 }
 
+module.exports = render
 module.exports.vendorSection = vendorSection
+
+//   node render-bundle.cjs <headBundleJson> <baseBundleJson> <outDir>
+if (require.main === module) {
+	const [head, base, out] = process.argv.slice(2)
+	render({ head, base, out })
+}

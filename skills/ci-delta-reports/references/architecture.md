@@ -58,10 +58,76 @@ into one job and back into serial execution.
 The report job then downloads two summaries and diffs them. It checks out the
 repository only to get the scripts; it never needs either build.
 
-## Why the base job fetches its scripts from head
+## Why the workflow file carries no logic
+
+Every step in `pr-checks.yml` is one line calling a script in `.github/ci/`.
+The steps that are usually written inline are not:
+
+| Step | Calls |
+|---|---|
+| List files this PR touches | `list-touched.sh` |
+| Fetch check scripts from head | `fetch-scripts.sh` |
+| Render fragments | `render-report.cjs` |
+| Post comment | `post-comment.cjs`, via one line of `github-script` |
+
+The reason is the difference in what the two kinds of file can reach. A
+workflow file can name any secret in the repository — `${{ secrets.ANYTHING }}`
+resolves for it. A script cannot: it sees the environment its step handed it,
+and nothing else. So the question for every line of CI is which file it should
+live in, and the answer is almost always the script, because that is where
+edits happen. Tuning a threshold, adding a section to the comment, changing how
+a list is capped — none of that should mean opening the file with access to the
+deploy key.
+
+Three things fall out of it:
+
+- **The scripts run from a terminal.** `node .github/ci/render-report.cjs
+  /tmp/head /tmp/base /tmp/out` is the same call the workflow makes. Inline
+  `run:` logic can only be tested by pushing.
+- **The diff reads correctly.** A change to the report shows up as a change to
+  a renderer, not as a change to CI configuration, and reviewers weight those
+  differently — correctly so.
+- **Secrets stay scoped.** Anything a step genuinely needs goes in that step's
+  `env:`, never at the top of the file and never interpolated into a `run:`
+  string. Interpolation puts the value on a command line, where it lands in
+  process lists and in the error output of anything that fails.
+
+`actions/github-script` is the one place this takes an argument rather than an
+env var: it hands the step an authenticated octokit, so `post-comment.cjs`
+takes `{ github, context, core }` and names no credential of its own.
+
+Shell is fine for the steps that are genuinely shell — `list-touched.sh` is
+three git commands. The rule is about where logic lives, not about language.
+Everything with branching lives in `.cjs`, which is also what
+`actions/github-script` can `require` — it cannot `require` an `.mjs`.
+
+## Why runs cancel each other
 
 ```yaml
-git checkout "${{ github.event.pull_request.head.sha }}" -- .github/ci/
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+```
+
+Each run of this workflow is two installs and two builds. A branch pushed three
+times in five minutes queues three of those, and only the last one describes
+the code as it now stands.
+
+Cost is the smaller half of the argument. The larger half is the comment: every
+run ends by upserting the same comment on the same PR, so without cancellation
+the three runs race, and the one that finishes last wins. That is often the
+oldest, because it started with a warmer cache. The PR then shows a delta for
+code that is two pushes stale, with no indication that it is.
+
+Group on the PR number rather than `github.head_ref`. Head refs are not unique
+across forks — two contributors both branching `patch-1` share one group, and
+each push to either PR cancels the other's run.
+
+## Why the base job fetches its scripts from head
+
+```bash
+# fetch-scripts.sh
+git checkout "$HEAD_SHA" -- .github/ci/
 ```
 
 The base branch has its own copy of `.github/ci/`, possibly an older one. If

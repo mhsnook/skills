@@ -7,6 +7,19 @@
 #
 # Total cost: 2 installs, 2 builds — whatever the number of checks.
 #
+# This file is a SHELL. Every step is a single call into a versioned script
+# under .github/ci/, and nothing here is more than one line of logic. Two
+# reasons, and the second one is the one that matters:
+#
+#   1. A workflow file is edited under a different review posture than code —
+#      changing the report should not mean touching CI plumbing.
+#   2. A workflow file can name any secret in the repository. A script can only
+#      see what a step hands it through `env:`. Keeping logic in the scripts
+#      means the day-to-day edits happen in files with no access to secrets at
+#      all, and the small blast-radius surface stays small.
+#
+# So when a step needs to grow: add it to a script, not to this file.
+#
 # CONFIGURE markers show every line that depends on the repository's toolchain.
 # Delete steps for checks you did not choose.
 
@@ -16,9 +29,18 @@ on:
   pull_request:
     branches: [main] # CONFIGURE: your base branches
 
+# Every push to a PR branch supersedes the run before it. Without this, a
+# branch pushed three times runs three full head+base matrices, and the two
+# losers race the winner to write the same comment — the last writer wins, and
+# it may be the oldest run. Grouping by PR number rather than by `head_ref`
+# keeps two forks that both branched `patch-1` from cancelling each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
+# Read-only by default. Only `report` widens this, and only to what it needs.
+permissions:
+  contents: read
 
 env:
   NODE_VERSION: "22" # CONFIGURE
@@ -42,22 +64,10 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile # CONFIGURE
 
-      # The formatter gate is scoped to the files this PR touches, so the head
-      # tree has to say which those are. Two-dot diff, because the default
-      # checkout for `pull_request` is the MERGE ref — base already merged in —
-      # so base.sha..HEAD is exactly this PR's own changes. If you change the
-      # checkout to `ref: github.event.pull_request.head.sha`, switch this to
-      # the three-dot form and drop the shallow fetch, or you will pick up
-      # every file that landed on base since the branch diverged.
+      # Feeds the formatter gate, which is scoped to the files this PR touches.
+      # Drop this step if formatting is report-only.
       - name: List files this PR touches
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          mkdir -p /tmp/out/static
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          git diff --name-only --diff-filter=d "$BASE_SHA" HEAD |
-            sort >/tmp/out/static/touched.txt
-          wc -l /tmp/out/static/touched.txt
+        run: bash .github/ci/list-touched.sh "${{ github.event.pull_request.base.sha }}" /tmp/out/static
 
       # Checks 1–3. Read-only checks run concurrently inside the script; the
       # formatter runs last because it rewrites files.
@@ -67,10 +77,16 @@ jobs:
       # CONFIGURE: a bundler that reads env vars at build time may silently
       # tree-shake dependencies away when they are missing. Dummy-but-truthy
       # values keep the build honest.
+      #
+      # A build that needs a real secret names it here, on this one step, and
+      # nowhere else — the scripts read it out of the environment they are
+      # given. Never interpolate `${{ secrets.* }}` into a `run:` string; that
+      # bakes the value into the command line, where it reaches process lists
+      # and error output.
       - name: Build
-        run: |
-          echo "VITE_EXAMPLE_URL=http://127.0.0.1:1234" >> $GITHUB_ENV
-          pnpm build                                      # CONFIGURE
+        env:
+          VITE_EXAMPLE_URL: http://127.0.0.1:1234 # CONFIGURE
+        run: pnpm build # CONFIGURE
 
       # Check 4, head half. Measures only — the diff happens in `report`.
       - name: Measure bundle
@@ -87,10 +103,7 @@ jobs:
 
       - name: Render test fragment
         if: ${{ !cancelled() }}
-        run: |
-          node -e "require('./.github/ci/render-tests.cjs')({
-            results: '/tmp/test-results.json', out: '/tmp/out/fragments'
-          })"
+        run: node .github/ci/render-tests.cjs /tmp/test-results.json /tmp/out/fragments
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
@@ -123,17 +136,15 @@ jobs:
       # base branch's copy. Both trees must be measured by the SAME script, or
       # a change to the script itself shows up as a change in the codebase.
       - name: Fetch check scripts from head
-        run: |
-          git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.head.sha }}"
-          git checkout "${{ github.event.pull_request.head.sha }}" -- .github/ci/
+        run: bash .github/ci/fetch-scripts.sh "${{ github.event.pull_request.head.sha }}"
 
       - name: Static checks
         run: bash .github/ci/collect-static.sh /tmp/out/static
 
       - name: Build
-        run: |
-          echo "VITE_EXAMPLE_URL=http://127.0.0.1:1234" >> $GITHUB_ENV
-          pnpm build                                      # CONFIGURE
+        env:
+          VITE_EXAMPLE_URL: http://127.0.0.1:1234 # CONFIGURE
+        run: pnpm build # CONFIGURE
 
       - name: Measure bundle
         run: node .github/ci/measure-bundle.cjs dist /tmp/out/bundle.json
@@ -152,6 +163,7 @@ jobs:
     needs: [head, base]
     if: ${{ always() && github.event_name == 'pull_request' }}
     permissions:
+      contents: read
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
@@ -165,27 +177,14 @@ jobs:
 
       # The diff happens here, once, over artifacts. Neither tree is present.
       - name: Render fragments
-        run: |
-          mkdir -p /tmp/fragments
-          cp -r /tmp/head/fragments/. /tmp/fragments/ 2>/dev/null || true
-          node -e "require('./.github/ci/render-static.cjs')({
-            head: '/tmp/head/static', base: '/tmp/base/static', out: '/tmp/fragments'
-          })"
-          node -e "require('./.github/ci/render-bundle.cjs')({
-            head: '/tmp/head/bundle.json', base: '/tmp/base/bundle.json', out: '/tmp/fragments'
-          })"
+        run: node .github/ci/render-report.cjs /tmp/head /tmp/base /tmp/fragments
 
+      # github-script exists only to hand the authenticated octokit to a
+      # script. The token never appears in this file.
       - name: Post comment
         uses: actions/github-script@v7
         with:
-          script: |
-            const { assemble, upsertComment } = require('./.github/ci/comment.cjs')
-            const marker = '### PR checks'
-            const body = assemble('/tmp/fragments', {
-              marker,
-              header: `_Compared against \`${context.payload.pull_request.base.ref}\`._`,
-            })
-            core.info(JSON.stringify(await upsertComment(github, context, marker, body)))
+          script: await require('./.github/ci/post-comment.cjs')({ github, context, core })
 
       - name: Gate
         run: node .github/ci/gate.cjs /tmp/fragments

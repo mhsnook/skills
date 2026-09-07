@@ -15,13 +15,17 @@ Both are legitimate. Ask which one the developer wants — do not assume this on
 ## What you will produce
 
 ```
-.github/workflows/pr-checks.yml   head job · base job · report job
+.github/workflows/pr-checks.yml   head job · base job · report job — a shell, no logic
+.github/ci/list-touched.sh        the PR's own file list, for the formatter gate
+.github/ci/fetch-scripts.sh       pins both trees to head's copy of .github/ci/
 .github/ci/collect-static.sh      runs typecheck + lint + format, normalises output
 .github/ci/measure-bundle.cjs     reads dist/ into a JSON summary
 .github/ci/scan-build.sh          greps dist/ for strings that must not ship
 .github/ci/delta.cjs              diff engine — set difference plus shift-pairing
 .github/ci/render-*.cjs           turn measurements into markdown fragments
+.github/ci/render-report.cjs      fan-in: both artifact trees to one fragment dir
 .github/ci/comment.cjs            fragment assembly and comment upsert
+.github/ci/post-comment.cjs       what the one github-script step calls
 .github/ci/gate.cjs               the single place pass/fail policy lives
 ```
 
@@ -30,6 +34,41 @@ build once, in parallel, then run every check that tree can answer. `report`
 diffs the two summaries, posts one comment, and decides pass or fail. Two
 installs and two builds total, whatever the number of checks — installs and
 builds are paid per job, so a job per check is how the cost explodes.
+
+**The workflow file holds no logic.** Every step is one line: a call into a
+script under `.github/ci/`. Nothing inline, no `run: |` block that grew a loop,
+no `node -e` one-liner, no twenty lines of `github-script`. When a step needs
+to do more, it goes in the script the step already calls.
+
+This is a security boundary, not a style preference. A workflow file can name
+any secret in the repository; a script sees only what a step handed it through
+`env:`. Push the logic down and the files people actually edit week to week —
+the renderers, the gate policy, the diff — are files with no access to secrets
+at all. Two more consequences worth having: those files are testable from a
+terminal, and a change to the report stops showing up as a change to CI
+plumbing.
+
+Two rules follow from it, and they both belong in what you generate:
+
+- **Secrets are named per step, never at the top of the file and never
+  interpolated into a `run:` string.** `${{ secrets.FOO }}` inside a command
+  bakes the value into the command line, where it reaches process lists and
+  error output. Put it in that step's `env:` and let the script read it from
+  the environment.
+- **`permissions:` starts read-only at the file level** and is widened on the
+  one job that needs it. Only `report` writes, and only `pull-requests: write`.
+
+**Always add a `concurrency` block.** Grouped per PR, `cancel-in-progress: true`.
+Without it a branch pushed three times runs three full head+base matrices, and
+the losers race the winner to write the same comment — last writer wins, and it
+may be the oldest run. Group on the PR number rather than `head_ref`, so two
+forks that both branched `patch-1` do not cancel each other:
+
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+```
 
 The architecture, and why each piece is shaped the way it is, lives in
 [references/architecture.md](references/architecture.md). Read it before you
@@ -114,6 +153,10 @@ bug.
   both jobs if they took neither check 4 nor check 6. The "List files this PR
   touches" step exists only to feed the formatter gate — keep it if they took
   check 3 with the default policy, drop it if formatting is report-only.
+  Keep the `concurrency` block and the read-only top-level `permissions` in
+  every case; neither depends on which checks they chose. If a step needs a
+  secret — a private registry token for the install, an API key the build reads
+  — add it to that step's `env:` and nowhere else.
 - `collect-static.sh` → swap in the real typecheck, lint, and format commands,
   and set `EXCLUDE` from their answer about vendored files. Read the commands
   out of `package.json` `scripts` rather than asking which formatter they use;
@@ -126,6 +169,15 @@ bug.
 - `scan-build.sh` → replace the example `FORBIDDEN` entries. Ask what must never
   ship; do not guess. Keep the reason on each line.
 - `gate.cjs` → set `POLICY` from the answers to step 2.
+- `post-comment.cjs` → set `RETIRED_MARKERS` to the markers of any bot comments
+  this workflow replaces, so the stale ones get cleaned up on the next run.
+  Leave it empty on a first install.
+- `list-touched.sh`, `fetch-scripts.sh`, `render-report.cjs` → copy as they are.
+  They exist to keep the workflow file free of logic; there is nothing in them
+  to configure.
+
+If a check needs a step the templates do not have, write it as a script in
+`.github/ci/` and call it from a one-line step. Do not grow the workflow file.
 
 ## Step 4 — verify before you hand it over
 
@@ -137,20 +189,36 @@ bash -n .github/ci/collect-static.sh              # shell syntax
 bash -n .github/ci/scan-build.sh
 node -e "require('./.github/ci/gate.cjs')"        # the policy object parses
 node .github/ci/measure-bundle.cjs dist /tmp/m.json   # after a local build
+bash -n .github/ci/list-touched.sh
+bash -n .github/ci/fetch-scripts.sh
+node -e "require('./.github/ci/render-report.cjs'); require('./.github/ci/post-comment.cjs')"
+python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/pr-checks.yml'))"
 ```
+
+That last one is worth its own line. A step's `env:` sits **inside** the step,
+after `- name:` — put it before and you get a YAML parse error that GitHub only
+reports once the workflow is pushed.
 
 Then confirm by reading, not by running:
 
-- The report job has `permissions: pull-requests: write` and `if: always()`, so
-  the comment still posts when a check job fails.
+- There is a `concurrency` block, grouped per PR, with `cancel-in-progress: true`.
+- No step has a multi-line `run:`, a `node -e`, or a `script:` longer than one
+  line. Anything that grew belongs in a script under `.github/ci/`.
+- `${{ secrets.` appears in no `run:` string. Secrets live in the `env:` of the
+  one step that needs them.
+- Top-level `permissions:` is `contents: read`. The report job has
+  `pull-requests: write` and `if: always()`, so the comment still posts when a
+  check job fails.
 - The `base` job checks out `.github/ci/` from the head SHA. Both trees must be
   measured by the same scripts, or editing a script reads as a code change.
 - If the formatter gate is on: the head job writes `touched.txt`, and the paths
   in it have the same shape as the ones in `format.txt` — both repo-root-relative,
   no `./`. A mismatch makes the intersection empty and the gate passes forever.
   Check one path from each list against the other by eye.
-- Every step the workflow references exists as a file, and every file the
-  workflow does not reference has been deleted.
+- Every script the workflow references exists as a file. Files it does not
+  reference are either libraries something else requires — `delta.cjs`,
+  `render-static.cjs`, `render-bundle.cjs`, `comment.cjs` — or dead, and dead
+  ones are deleted.
 - No `CONFIGURE` markers survive.
 
 Say plainly that CI cannot be fully verified without a real PR, and that the
@@ -158,6 +226,11 @@ first run is the actual test.
 
 ## Rules that keep the report honest
 
+- **The workflow file is a shell; the logic is in scripts.** One line per step.
+  A file that can read every secret in the repository should be a file nobody
+  needs to edit.
+- **A `concurrency` block, always.** Grouped per PR, cancelling in progress.
+  Superseded runs otherwise race each other to write the same comment.
 - **Report and gate are separate steps.** The comment posts even on a red build.
   A contributor who cannot see why it failed will guess.
 - **One comment, updated in place.** Match on a marker prefix and edit. Four

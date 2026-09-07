@@ -34,7 +34,7 @@ function parse(raw) {
 	}
 }
 
-module.exports = function render({ results, out }) {
+function render({ results, out }) {
 	fs.mkdirSync(out, { recursive: true })
 
 	if (!fs.existsSync(results)) {
@@ -75,4 +75,12 @@ module.exports = function render({ results, out }) {
 		path.join(out, '50-tests.json'),
 		JSON.stringify({ check: 'tests', failed: s.failed, total: s.total }, null, 2)
 	)
+}
+
+module.exports = render
+
+//   node render-tests.cjs <resultsJson> <outDir>
+if (require.main === module) {
+	const [results, out] = process.argv.slice(2)
+	render({ results, out })
 }

@@ -18,7 +18,7 @@ const {
 // CONFIGURE: how many issues to print before collapsing to "… and N more".
 const CAP = 50
 
-module.exports = function render({ head, base, out }) {
+function render({ head, base, out }) {
 	fs.mkdirSync(out, { recursive: true })
 	const write = (name, markdown, gate) => {
 		fs.writeFileSync(path.join(out, `${name}.md`), markdown)
@@ -112,4 +112,12 @@ module.exports = function render({ head, base, out }) {
 			touchedKnown,
 		}
 	)
+}
+
+module.exports = render
+
+//   node render-static.cjs <headDir> <baseDir> <outDir>
+if (require.main === module) {
+	const [head, base, out] = process.argv.slice(2)
+	render({ head, base, out })
 }
