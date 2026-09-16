@@ -58,6 +58,18 @@ file when the *first* half fails in its own format, and an empty file means zero
 errors. Capture the exit status, and when it is non-zero with no recognised
 error lines, write one synthetic issue line instead. The template does this.
 
+### A compound typecheck hides most of its own errors
+
+`tsc -p a && tsc -p b && tsc -p c` stops at the first project that fails, so
+projects 2 and 3 are never typechecked. The delta then reads backwards: fixing
+the last error in project 1 makes every pre-existing error in projects 2 and 3
+appear as newly added, in a PR that added none of them.
+
+Run each project separately, OR their exit statuses together, concatenate the
+output and `sort -u`. The de-duplication is not cosmetic — multi-project
+TypeScript setups share files, so one error in a shared file prints once per
+project and would otherwise be counted three times.
+
 Some typecheckers do not print `tsc` format at all. `astro check` prints
 `file:line:col - error ts(NNNN): message`, with ANSI colour and code frames. Strip
 the colour, keep only the diagnostic lines, rewrite ` - ` into `: `, and read it

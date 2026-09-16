@@ -22,8 +22,9 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   # A cancelled run leaves its sticky comment describing an older commit, with
-  # no red X to explain why. Let a PR run finish; cancel only superseded pushes.
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  # no red X to explain why, so a PR run is never cancelled. This workflow only
+  # triggers on `pull_request`, so the value is a constant.
+  cancel-in-progress: false
 
 env:
   # CONFIGURE: delete this if the repo has a `.nvmrc` — the jobs below prefer
@@ -154,6 +155,33 @@ jobs:
         with:
           ref: ${{ github.base_ref }}
 
+      # BEFORE setup-node, and that ordering is load-bearing. `.nvmrc` is in
+      # this list, and the PR that ADDS a `.nvmrc` is by definition a PR whose
+      # base branch has none — `setup-node` would die on the missing file before
+      # any later step could fetch it. The same holds for a PR that bumps the
+      # Node version: both trees must use the new one.
+      #
+      # Everything here is part of the measurement rather than part of the code.
+      # The scripts, because both trees must be measured by the SAME script, or
+      # a change to a script shows up as a change in the codebase. The linter,
+      # formatter and TypeScript configs, because a PR that changes a rule would
+      # otherwise leave the base tree judged by the old rule, so every file that
+      # rule touches reads as newly broken.
+      #
+      # One `git checkout` per path: a single call listing all of them fails as
+      # a whole when any one is missing, which would silently leave the base
+      # tree measured by its own older configs.
+      #
+      # CONFIGURE: your linter, formatter and TypeScript config files.
+      - name: Fetch the measurement from head
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.head.sha }}"
+          git checkout "${{ github.event.pull_request.head.sha }}" -- .github/ci/
+          for f in .nvmrc .oxlintrc.json .oxfmtrc.json .prettierrc.json .prettierignore tsconfig.json; do
+            git checkout "${{ github.event.pull_request.head.sha }}" -- "$f" ||
+              echo "no $f on head, leaving the base copy in place"
+          done
+
       - uses: pnpm/action-setup@v6 # CONFIGURE
       - uses: actions/setup-node@v7
         with:
@@ -163,30 +191,6 @@ jobs:
       - name: Install
         id: install
         run: pnpm install --frozen-lockfile # CONFIGURE
-
-      # The script lives on the head branch, so fetch it rather than using the
-      # base branch's copy. Both trees must be measured by the SAME script, or
-      # a change to the script itself shows up as a change in the codebase.
-      - name: Fetch check scripts from head
-        run: |
-          git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.head.sha }}"
-          git checkout "${{ github.event.pull_request.head.sha }}" -- .github/ci/
-
-      # The linter and formatter configs are part of the measurement too. If a
-      # PR changes a rule, both trees must be judged by the new rule, or every
-      # file the rule touches reads as newly broken.
-      #
-      # One `git checkout` per file: a single call listing all of them fails as
-      # a whole when any one path is missing, which would silently leave the
-      # base tree measured by its own older configs.
-      #
-      # CONFIGURE: your linter and formatter config files.
-      - name: Fetch tool configs from head
-        run: |
-          for f in .oxlintrc.json .oxfmtrc.json .prettierrc.json .prettierignore; do
-            git checkout "${{ github.event.pull_request.head.sha }}" -- "$f" ||
-              echo "no $f on head, leaving the base copy in place"
-          done
 
       - name: Static checks
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}

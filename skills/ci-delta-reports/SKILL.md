@@ -154,13 +154,30 @@ bug.
   Rewrite it for another runner and leave the rest.
 - `scan-build.sh` → replace the example `FORBIDDEN` entries. Ask what must never
   ship; do not guess. Keep the reason on each line.
+**A repo with no linter and no formatter is a shape, not a subtraction.** Do not
+leave the machinery behind, because dead machinery in a gate file reads as an
+active check. Delete all four:
+
+1. the `touched.txt` step in the head job,
+2. the `touched-clean` entry in `POLICY` and the rule in `verdict()`,
+3. `EXCLUDE` in `collect-static.sh`, which now filters nothing,
+4. the closing `git checkout -- .` in `collect-static.sh`. It exists only
+   because the formatter rewrites files. With no formatter it is an unexplained
+   tree-discarding command in a script people run locally.
+
+**A library takes no bundle check at all.** Do not adapt `measure-bundle.cjs` to
+walk a `tsc` output directory — a byte budget on that teaches nobody anything.
+`pnpm publish --dry-run` is the check that matters, because it catches a package
+shipping the wrong files. Delete `measure-bundle.cjs`, `render-bundle.cjs`, and
+the bundle branch of `gate.cjs`.
+
 - `gate.cjs` → set `POLICY` from the answers to step 2, and set `REQUIRED` to
   the checks whose *absence* must fail. A crashed job writes no sidecar at all,
   which the per-check missing rule cannot see.
-- `workflow.yml` → the base job's "Fetch tool configs from head" step lists the
-  linter and formatter config files. Name the real ones. If a PR changes a lint
-  rule and only the head tree uses the new rule, every file that rule touches
-  reads as newly broken.
+- `workflow.yml` → the base job's "Fetch the measurement from head" step lists
+  the config files. Name the real ones, and include the **tsconfigs**: a PR that
+  tightens a compiler flag is the same failure as a PR that tightens a lint
+  rule. Keep that step above `setup-node`, because `.nvmrc` is in the list.
 - If the repo already has a bot comment this workflow replaces, call
   `retireComments(github, context, ['### Old heading'])` in the report job once,
   so open PRs lose the stale comment instead of carrying two. This is
@@ -168,7 +185,8 @@ bug.
   skill moves to the hidden marker**: the old comments match neither the new
   marker nor anything else, so every open PR grows a second one. Check that the
   new body does not contain the retire string itself, or the workflow deletes
-  its own comment.
+  its own comment. Retire only comments that report the **same checks** — a
+  deployment bot's comment is not a duplicate of this one.
 - If you write a custom bundle verdict rather than using the template's, pass
   the base size through into the sidecar. A `'5%'` budget has no meaning without
   the number it is 5% of.
