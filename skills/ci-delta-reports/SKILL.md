@@ -198,8 +198,11 @@ the bundle branch of `gate.cjs`.
   skill moves to the hidden marker**: the old comments match neither the new
   marker nor anything else, so every open PR grows a second one. Check that the
   new body does not contain the retire string itself, or the workflow deletes
-  its own comment. Retire only comments that report the **same checks** — a
-  deployment bot's comment is not a duplicate of this one.
+  its own comment. `retireComments` matches on `startsWith`, so this is only
+  safe because the new body begins with the hidden marker: retire a heading that
+  the new comment also starts with, and the workflow deletes what it just
+  posted. Retire only comments that report the **same checks** — a deployment
+  bot's comment is not a duplicate of this one.
 - If you write a custom bundle verdict rather than using the template's, pass
   the base size through into the sidecar. A `'5%'` budget has no meaning without
   the number it is 5% of.

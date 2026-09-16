@@ -201,6 +201,13 @@ on four counts:
 What it costs: the two builds run in series, so wall clock is the sum rather
 than the maximum. On a slow build that is the whole argument.
 
+It also breaks any tool that prints **absolute paths**, which ESLint does. The
+base worktree lives at `/tmp/base-branch` and head in the workspace, so the same
+issue appears under two different paths and every finding reads as one resolved
+plus one new. Normalise both roots out of every path before diffing, or use the
+two-job layout, which cannot have this problem: each tree is at the workspace
+root on its own runner.
+
 Two rules carry over unchanged. Move each build's output aside before the next
 build overwrites it, and remove the worktree with `if: always()`. One rule is
 easy to lose: the base worktree runs the **base branch's** configs, so check the

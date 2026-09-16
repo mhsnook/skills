@@ -16,6 +16,19 @@ set -uo pipefail
 OUT="${1:?usage: collect-static.sh <output-dir>}"
 mkdir -p "$OUT"
 
+# Refuse to run on a dirty tree, because the results would be wrong in two ways
+# at once. `git diff --name-only` reports YOUR edits as formatter drift, and the
+# closing `git checkout -- .` then discards them — including edits to this
+# script, which bash is still reading, so the run produces partial output.
+# COLLECT_STATIC_FORCE=1 overrides, for a tree you are willing to lose.
+if [ -z "${COLLECT_STATIC_FORCE:-}" ] && [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+	echo "collect-static.sh: the working tree has uncommitted changes." >&2
+	echo "  This script reads 'git diff' as formatter drift and ends with 'git checkout -- .'," >&2
+	echo "  so it would both misreport and discard them. Commit first, or set" >&2
+	echo "  COLLECT_STATIC_FORCE=1 if you are willing to lose the changes." >&2
+	exit 2
+fi
+
 # Byte-order sorting, so the two trees produce comparable lists even if the two
 # runners ever differ in locale. `sort` under a UTF-8 locale ignores leading
 # punctuation, which would order `.oxfmtrc.json` after `AGENTS.md`.
@@ -70,8 +83,35 @@ EXCLUDE='^(vendor/|third_party/|dist/|\.github/ci/|.*\.generated\.[jt]s$)'
 	# Keep the package script for humans; CI runs the binary.
 	pnpm exec oxlint . -f unix >"$OUT/.oxlint.raw" 2>&1
 	oxlint_status=$?
-	pnpm exec eslint . -f unix >"$OUT/.eslint.raw" 2>&1
+
+	# NOT `eslint -f unix`. ESLint 9 moved that formatter out of core, so the
+	# command prints one line of advice and exits 2 — which the grep below drops,
+	# leaving a silent zero. One repo ran eslint in CI for months contributing no
+	# issues at all for exactly this reason.
+	#
+	# `-f json` is stable across ESLint 8 and 9, and converting it here also
+	# fixes the paths: eslint prints absolute ones, which would carry the
+	# runner's working directory into the diff.
+	pnpm exec eslint . -f json >"$OUT/.eslint.json" 2>/dev/null
 	eslint_status=$?
+	node -e '
+		const fs = require("fs")
+		const root = process.cwd() + "/"
+		const lines = []
+		try {
+			for (const file of JSON.parse(fs.readFileSync(process.argv[1], "utf8"))) {
+				const rel = file.filePath.startsWith(root) ? file.filePath.slice(root.length) : file.filePath
+				for (const m of file.messages ?? []) {
+					const kind = m.severity === 2 ? "Error" : "Warning"
+					lines.push(`${rel}:${m.line ?? 0}:${m.column ?? 0}: ${m.message} [${kind}/${m.ruleId ?? "syntax"}]`)
+				}
+			}
+		} catch {
+			// A missing or unparseable report is caught by the exit-status guard
+			// below; do not let it take the whole script down.
+		}
+		fs.writeFileSync(process.argv[2], lines.length ? lines.join("\n") + "\n" : "")
+	' "$OUT/.eslint.json" "$OUT/.eslint.raw"
 	cat "$OUT/.oxlint.raw" "$OUT/.eslint.raw" |
 		grep -E '^[^:[:space:]][^:]*:[0-9]+:[0-9]+:' |
 		grep -Ev "$EXCLUDE" |

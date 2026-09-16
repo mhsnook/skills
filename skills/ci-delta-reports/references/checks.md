@@ -215,6 +215,12 @@ Report these axes separately, because they move for different reasons:
 - **CSS** — render-blocking, and moves when design changes rather than logic.
 - **Vendor chunks** — compared by content hash, not size.
 
+Every eager chunk is compared this way, not only the third-party ones. A project
+with manual chunk groups gets more information than a vendor-only list, and one
+thing less: its own shared app chunks now sit in the same list, and those
+re-hash on most app-code changes. Read the list as "what a returning visitor
+re-downloads", not as "what went wrong".
+
 That last one is the non-obvious axis and often the most useful. A vendor chunk
 whose hash is unchanged is still in returning visitors' caches. A PR that adds
 2 kB to a vendor chunk has really cost every returning user the *whole* chunk
