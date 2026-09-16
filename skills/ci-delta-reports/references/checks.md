@@ -194,6 +194,19 @@ none, and each wants a different measurement:
   measure the two halves on separate axes. They move for different reasons and
   a combined total tells you nothing about either.
 
+**A server-rendered app may have no HTML file at all.** TanStack Start and
+Next.js generate the HTML per request, so `dist/client` holds only assets. Do
+not fall straight to walking the directory — that reports every lazy chunk as
+eager, which inflates the number people are watching. Look for the framework's
+own route manifest first: TanStack Start writes one into the server bundle
+(`_tanstack-start-manifest_v-*.js`, with `__root__.preloads` and
+`__root__.scripts`), and Next.js has the equivalent in `.next`. Record which
+source you used in the measurement — `eagerSource` in the template — and print
+it in the comment, so a fallback is visible rather than silent.
+
+CSS that the framework injects at render time counts as eager even though no
+preload tag references it.
+
 **Watch for:** a bundler that reads environment variables at build time may
 tree-shake large dependencies away when those variables are missing, producing
 a build that looks dramatically smaller and means nothing. Set dummy-but-truthy

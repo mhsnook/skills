@@ -100,6 +100,7 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         continue-on-error: true
         run: |
+          mkdir -p /tmp/out
           echo "VITE_EXAMPLE_URL=http://127.0.0.1:1234" >> $GITHUB_ENV
           pnpm build 2>&1 | tee /tmp/out/build.log   # CONFIGURE
 
@@ -196,6 +197,7 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         continue-on-error: true
         run: |
+          mkdir -p /tmp/out
           echo "VITE_EXAMPLE_URL=http://127.0.0.1:1234" >> $GITHUB_ENV
           pnpm build 2>&1 | tee /tmp/out/build.log   # CONFIGURE
 

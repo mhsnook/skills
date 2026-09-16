@@ -13,10 +13,16 @@ const path = require('path')
 const zlib = require('zlib')
 
 // CONFIGURE: how to strip the content hash, so the same logical chunk is
-// comparable across two builds. Rolldown and Vite emit 8 characters after a
-// dash; Webpack emits up to 20 hex digits; Astro puts the hash before the
-// extension after a dot.
-const STRIP_HASH = /[-.][A-Za-z0-9_-]{8,20}(\.[a-z]+)$/
+// comparable across two builds. Vite and Rolldown emit 8 characters after a
+// dash, Astro puts the same 8 before the extension after a dot, and Webpack
+// emits 16 or 20 hex digits.
+//
+// Each length is exact, and that is load-bearing. A range like {8,20} matches
+// from the FIRST dash in `client-entry-a1b2c3d4.js`, because `entry-a1b2c3d4`
+// is itself inside the range — the key becomes `client.js`, and every chunk
+// whose name contains a dash collapses onto a neighbour's key. The identity
+// comparison then reports two different files as one unchanged chunk.
+const STRIP_HASH = /[-.](?:[A-Za-z0-9_-]{8}|[A-Za-z0-9]{16}|[a-f0-9]{20})(\.[a-z0-9]+)$/
 
 const sizeOf = (file) => {
 	const buf = fs.readFileSync(file)
@@ -66,6 +72,10 @@ function measure(dist) {
 		// visitors' caches.
 		eagerChunks: {},
 		fileCount: 0,
+		// Where the eager set came from. Say it in the report: a walk over the
+		// whole output directory is a fallback, and its "eager" total is really
+		// everything the build emitted.
+		eagerSource: 'index.html',
 	}
 
 	for (const rel of eager) {

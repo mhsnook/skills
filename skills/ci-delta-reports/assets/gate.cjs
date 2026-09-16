@@ -31,8 +31,9 @@ const POLICY = {
 // CONFIGURE: checks whose sidecar must exist. `verdict` catches a check that
 // reported "I could not measure this"; this list catches one that reported
 // nothing at all, because the job died before writing a fragment. Without it,
-// a crashed head job passes the gate.
-const REQUIRED = ['typecheck', 'lint', 'tests']
+// a crashed head job passes the gate. Keep it in step with POLICY: every gated
+// check that writes a sidecar belongs here, or its absence passes.
+const REQUIRED = ['typecheck', 'lint', 'format', 'tests']
 
 /**
  * Read a budget written as bytes, `20KiB`, or `5%` of the base size.
