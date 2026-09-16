@@ -161,10 +161,24 @@ Match on a hidden marker (`<!-- ci-delta:pr-checks -->`), not on the visible
 heading. Rewording a heading orphans every comment already on an open PR, and
 the next run posts a second one beside it.
 
-Assemble the comment from per-check fragments with an ordering prefix, so jobs
-finishing out of order still render consistently, and cap the total — platforms
+Each check contributes three things, and keeping them separate is what lets the
+comment stay short while the gate stays strict:
+
+| Contribution | Goes to |
+|---|---|
+| a delta, a status and a label | one row of the summary table |
+| the counts and the offending items | one entry in the detail list |
+| a verdict against its policy | the gate step |
+
+Give each check an ordering key so a table row and its detail entry line up, and
+so jobs finishing out of order still render the same. Cap the detail — platforms
 reject a comment body over about 65,000 characters, and a mechanical refactor
-will find that limit.
+will find that limit. The table has a fixed number of rows and never needs
+capping, which is most of why it belongs at the top.
+
+A check that measured nothing still gets a row. An absent row and a passing row
+look identical at a glance, which is the failure this whole report exists to
+avoid.
 
 If the repo already has a bot comment this replaces, delete it once on the first
 run. Match only comments reporting the same checks: a deployment bot's comment

@@ -21,70 +21,88 @@ Both are legitimate. Ask which one the developer wants — do not assume this on
 CI that writes one comment on the pull request and updates it in place on every
 push. Something like this:
 
+A summary table, then the detail under it. On a PR with something to fix:
+
 ```markdown
 ### PR checks
 _Compared against `main`._
 
-❌ **Blocking:** 2 new type errors · 1 file you touched is unformatted
+❌ **2 checks failing**
 
-#### Type errors
-❌ **2 new** · 41 on `main` → 43 here · 1 resolved · 3 shifted, not counted
+| Check                          | Delta | Status |
+|--------------------------------|-------|--------|
+| Type errors                    |   +2  |   ❌   |
+| Formatting (files you touched) |   +1  |   ❌   |
+| Lint                           |   −6  |   ✅   |
+| Bundle size                    | +0.5% |   ⚠️   |
+| Test failures                  |    0  |   ✅   |
 
-  New:
-    src/client/deck.tsx(88,12): error TS2322: Type 'string' is not assignable…
-    src/shared/vote.ts(14,3): error TS18048: 'entry' is possibly 'undefined'.
+**Details**
 
-#### Lint
-✅ No new issues. 1,204 on `main` → 1,198 here · 6 resolved
-
-#### Formatter drift
-❌ **Blocking — 1 file this PR touches is not formatted.** Run the formatter
-    and commit. A file you edited ships formatted, no exceptions.
-      src/client/deck.tsx
-
-  The other 82 unformatted files are not this PR's problem, and are reported
-  only as a trend: 83 files ↓ from 84.
-  By type: `.ts` 51 · `.tsx` 24 · `.sql` 8
-
-#### Bundle size
-🟢 Eager load 198.4 kB → 199.1 kB gzipped (+0.7 kB)
-    Entry chunk +0.7 kB · CSS unchanged · 12 lazy chunks
-
-  Chunks that changed — repeat visitors re-download these in full:
-    `index.js` — 91.2 kB → 91.9 kB raw, ↑ 0.7 kB
-    11 other chunks keep their hash, 107 kB gzipped, still cached.
-
-#### Tests
-✅ 891/891 passed · 7 reports merged
+- **Type errors** — 41 on `main` → 43 here · 1 resolved · 3 shifted, not counted
+  - `src/client/deck.tsx(88,12): error TS2322: Type 'string' is not assignable…`
+  - `src/shared/vote.ts(14,3): error TS18048: 'entry' is possibly 'undefined'.`
+- **Formatting** — 1 file this PR touches is unformatted. Run the formatter and
+  commit; a file you edited ships formatted.
+  - `src/client/deck.tsx`
+  - 82 other unformatted files are not this PR's problem, and block nothing:
+    `.ts` 51 · `.tsx` 24 · `.sql` 8 — down from 84
+- **Lint** — no new issues. 1,204 on `main` → 1,198 here · 6 resolved
+- **Bundle size** — eager JS 198.4 → 199.1 kB gzipped · CSS unchanged · 12 lazy
+  - `index.js` re-hashed, 91.2 → 91.9 kB raw, so returning visitors fetch it again
+  - 11 other chunks keep their hash, 107 kB gzipped, still cached
+- **Tests** — 891/891 passed, 7 reports merged
 ```
 
-The **Build** section is absent here on purpose: both trees built, so it says
-nothing. It appears only to report that this PR broke the build, fixed a broken
-base branch, or inherited one that was already broken.
+On a PR with nothing to fix, which is most of them:
 
-Each section has a policy, and one step at the end reaches the verdict from the
-same numbers the comment shows. In this example, type errors and the touched
-unformatted file block the merge, while the bundle growth and the repo-wide
-formatter total are reported and nothing else.
+```markdown
+### PR checks
+_Compared against `main`._
 
-Two of those defaults are worth saying out loud, because they are the ones that
-make this CI usable on a repo carrying debt:
+✅ **All checks passing**
 
-- **A file you touched ships formatted.** That blocks, whether the drift is new
-  or was there before you opened the file.
-- **A file you did not touch is not your problem.** 82 unformatted files sit in
-  the same report as a trend, and block nothing.
+| Check                          | Delta | Status |
+|--------------------------------|-------|--------|
+| Type errors                    |    0  |   ✅   |
+| Formatting (files you touched) |    0  |   ✅   |
+| Lint                           |    0  |   ✅   |
+| Bundle size                    |  0.0% |   ✅   |
+| Test failures                  |    0  |   ✅   |
 
-## This skill is instructions, not a framework
+**Details**
 
-It ships no code to copy. You are building CI for **this** repository, in
-whatever language and style that repository already uses, and you will make
-better decisions with the repo in front of you than any template could make in
-advance.
+- **Type errors** — none new. 41 on `main`, 41 here.
+- **Formatting** — every file this PR touches is formatted. 84 unformatted
+  elsewhere, unchanged.
+- **Lint** — none new. 1,204 on `main`, 1,204 here.
+- **Bundle size** — eager JS 198.4 kB · CSS 103 kB · 12 lazy chunks. No change.
+- **Tests** — 891/891 passed.
+```
 
-What the skill gives you: the architecture that works and why, the per-check
-detail, and a catalogue of the ways this kind of CI silently reports the wrong
-answer. Read all three before you write anything.
+Four things in that shape are deliberate:
+
+- **The delta column is the product.** Absolute counts live in the detail, where
+  they answer "how bad is it overall"; the table answers "what did I just do".
+- **Three states, not two.** ✅ passed, ❌ blocking, ⚠️ moved but not gated. A
+  report-only check that moved deserves attention without stopping anyone, and
+  a reader can tell at a glance which failures they must act on.
+- **No Build row while both trees build.** It appears only to say that this PR
+  broke the build, fixed a broken base branch, or inherited one already broken.
+  Same rule everywhere: say nothing when there is nothing to say.
+- **The formatter's two lines are the load-bearing pair** on a repo carrying
+  debt. A file you touched ships formatted, whether the drift is new or was
+  there before you opened the file. A file you did not touch blocks nothing,
+  and is reported only as a trend.
+
+## How to use this skill
+
+You are building CI for your project, in whatever language and style your
+repository already uses, and you will use this skill as general guidance and
+troubleshooting help to set up your own (opinionated) CI job. The skill gives
+you the architecture that works on github actions, and why, the per-check
+detail, and a catalogue of the ways this kind of CI can break on you.
+Read all three before you write anything.
 
 - [references/architecture.md](references/architecture.md) — the structural
   decisions, and the one algorithm worth specifying exactly
@@ -103,7 +121,7 @@ Two working implementations to read rather than imitate line by line:
 
 ## Step 1 — read the repo first
 
-Never ask a question the repository already answers. Determine:
+Determine:
 
 - The package manager and **where its version is pinned**. For pnpm that is the
   `packageManager` field; pinning the version again in the workflow is the most
