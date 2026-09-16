@@ -55,12 +55,28 @@ EXCLUDE='^(vendor/|third_party/|dist/|\.github/ci/|.*\.generated\.[jt]s$)'
 (
 	# CONFIGURE: one block per linter, all normalised to unix format
 	# (`file:line:col: message`) so they merge into a single sorted list.
+	#
+	# Call the TOOL, not the package script. The base tree is the base branch,
+	# and on the PR that introduces a script, the base tree does not have it.
+	# Keep the package script for humans; CI runs the binary.
 	pnpm exec oxlint . -f unix >"$OUT/.oxlint.raw" 2>&1
+	oxlint_status=$?
 	pnpm exec eslint . -f unix >"$OUT/.eslint.raw" 2>&1
+	eslint_status=$?
 	cat "$OUT/.oxlint.raw" "$OUT/.eslint.raw" |
 		grep -E '^[^:[:space:]][^:]*:[0-9]+:[0-9]+:' |
 		grep -Ev "$EXCLUDE" |
 		sort -u >"$OUT/lint.txt"
+
+	# A linter exits 1 when it found issues and 2 when it could not RUN — a bad
+	# config, a missing formatter package, a parse error. Exit 2 prints nothing
+	# the grep matches, so without this the report reads "0 lint issues".
+	for status in "$oxlint_status" "$eslint_status"; do
+		if [ "$status" -gt 1 ]; then
+			echo "lint:0:0: error: a linter exited $status without running — see the job log" \
+				>>"$OUT/lint.txt"
+		fi
+	done
 ) &
 wait
 

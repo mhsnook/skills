@@ -100,6 +100,11 @@ jobs:
         id: build
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         continue-on-error: true
+        # `shell: bash` is not decoration. The default shell for `run:` is
+        # `bash -e` with NO pipefail, so `pnpm build | tee` reports tee's exit
+        # status — always 0 — and a failed build records as a success. Check 0
+        # would then never fire. This form is `bash -eo pipefail`.
+        shell: bash
         run: |
           mkdir -p /tmp/out
           echo "VITE_EXAMPLE_URL=http://127.0.0.1:1234" >> $GITHUB_ENV
@@ -182,7 +187,21 @@ jobs:
               echo "no $f on head, leaving the base copy in place"
           done
 
+      # CONFIGURE, and only on the PR that ADDS the `packageManager` field:
+      # pnpm/action-setup reads it from the base tree and dies with "No pnpm
+      # version is specified". Do not check head's package.json into the base
+      # tree — it carries the dependency list, so `--frozen-lockfile` would then
+      # fail against the base lockfile on every PR that adds a dependency.
+      # Give the action a scratch copy instead, and delete these two lines once
+      # the field has landed on the base branch.
+      #
+      # - name: Read the toolchain version from head
+      #   run: |
+      #     mkdir -p .ci-toolchain
+      #     git show "${{ github.event.pull_request.head.sha }}":package.json \
+      #       >.ci-toolchain/package.json
       - uses: pnpm/action-setup@v6 # CONFIGURE
+        # with: { package_json_file: .ci-toolchain/package.json }
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc # CONFIGURE
@@ -200,6 +219,11 @@ jobs:
         id: build
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         continue-on-error: true
+        # `shell: bash` is not decoration. The default shell for `run:` is
+        # `bash -e` with NO pipefail, so `pnpm build | tee` reports tee's exit
+        # status — always 0 — and a failed build records as a success. Check 0
+        # would then never fire. This form is `bash -eo pipefail`.
+        shell: bash
         run: |
           mkdir -p /tmp/out
           echo "VITE_EXAMPLE_URL=http://127.0.0.1:1234" >> $GITHUB_ENV
@@ -269,5 +293,10 @@ jobs:
 
       # `tee` puts the verdict on the run's summary page, so the reason a
       # required check went red is visible without opening the log.
+      #
+      # `shell: bash` for pipefail, exactly as on the build steps. Without it
+      # this step reports tee's exit status and the gate NEVER fails — silently,
+      # and only visibly wrong on the first run that should have blocked.
       - name: Gate
+        shell: bash
         run: node .github/ci/gate.cjs /tmp/fragments | tee -a "$GITHUB_STEP_SUMMARY"

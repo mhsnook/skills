@@ -85,11 +85,25 @@ and de-duplicated.
 
 | Tool | Flag |
 |---|---|
-| ESLint | `-f unix` |
+| ESLint 8 | `-f unix` |
+| ESLint 9 | ⚠️ no `unix` formatter — see below |
 | oxlint | `-f unix` |
 | Ruff | `--output-format concise` |
 | golangci-lint | `--out-format line-number` |
 | Clippy | `--message-format short` |
+
+**ESLint 9 dropped the `unix` formatter from core.** `eslint . -f unix` exits 2
+with "The unix formatter is no longer part of core ESLint", which prints nothing
+the grep matches, so the report reads zero issues. Either add the
+`eslint-formatter-unix` package, or write a ~20-line formatter module in
+`.github/ci/` and point `-f` at it. The local module has a second advantage:
+ESLint prints absolute paths, which would carry `/home/runner/work/...` into the
+diff, and a formatter you control emits repo-root-relative ones.
+
+**Guard the linter's exit status too.** Exit 1 means it found issues; exit 2
+means it could not run — a bad config, a missing formatter package, a parse
+error. Exit 2 produces no parseable output, which reads as a clean run. The
+template writes one synthetic issue line instead.
 
 Merging linters into one list is deliberate: a reviewer cares that there is a
 new issue at `src/foo.ts:12`, not which of the two tools found it. Keep the
@@ -165,6 +179,23 @@ this, so a touched file under `EXCLUDE` cannot block the PR. That is deliberate
 **Gate advice:** `touched-clean`. The repo-wide total stays report-only, with
 the trend arrow doing that work.
 
+### If the repo has no formatter, delete five things
+
+The templates assume this check exists, so skipping it is five coordinated
+deletions across four files. Half-doing it leaves a fragment that renders
+"⚠️ No list of touched files was produced" on every PR forever:
+
+1. the "List files this PR touches" step in the head job,
+2. the `format` entry in `POLICY` and the `touched-clean` branch in `verdict()`,
+3. `format` in `REQUIRED`,
+4. the formatter run and the `format.txt` write in `collect-static.sh` —
+   including its closing `git checkout -- .`, which is only there because a
+   formatter rewrites files,
+5. the whole format section in `render-static.cjs`.
+
+Adopting a formatter later is a separate decision, and a much larger diff than
+this workflow. Offer it; do not smuggle it in.
+
 ## 4. Bundle size
 
 **Normalised form:** byte counts, raw and gzipped, on several axes.
@@ -231,6 +262,11 @@ same as a missing one.
 Whatever shape you measure, **emit a file count**. That is the field the
 empty-build guard reads, and a hand-written `measure()` for a library or a
 Worker that omits it re-opens the −100% hole without any visible sign.
+
+**Watch for:** a CSS framework that scans the repository for class names —
+Tailwind v4 does — makes the CSS total depend on which files exist, so adding
+unrelated files moves it by a few bytes. Harmless at report-only; a CSS budget
+on such a repo trips on file additions.
 
 **Noise floor.** Two builds of the same commit differ by a few bytes per chunk.
 The template reports an eager delta under 512 bytes as zero, so a budget never

@@ -29,8 +29,11 @@ const EXCERPT = 40
 // Astro prints `12:05:39 [ERROR] [vite] ✘ Build failed`, and an anchor that
 // does not allow the clock prefix matches nothing, which silently falls back to
 // quoting the tail of the log.
+// The `(\d+,\d+): error TS` branch matters for the very common
+// `build: tsc -b && vite build`: a type error's first line starts with a file
+// path, so a keyword-only anchor matches nothing.
 const ERROR_HEADING =
-	/^\s*(?:\d{1,2}:\d{2}:\d{2}\s+)?(?:\[(?:ERROR|\w*Error)\]|error\b|ERROR\b|Error:|\[vite\]|✘|×|failed to)/
+	/^\s*(?:\d{1,2}:\d{2}:\d{2}\s+)?(?:\[(?:ERROR|\w*Error)\]|error\b|ERROR\b|Error:|\[vite\]|✘|×|failed to)|\(\d+,\d+\): error TS/
 
 const read = (p) => {
 	try {

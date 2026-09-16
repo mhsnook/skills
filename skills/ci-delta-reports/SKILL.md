@@ -156,14 +156,25 @@ bug.
   ship; do not guess. Keep the reason on each line.
 **A repo with no linter and no formatter is a shape, not a subtraction.** Do not
 leave the machinery behind, because dead machinery in a gate file reads as an
-active check. Delete all four:
+active check. [references/checks.md §3](references/checks.md) lists the five
+deletions; `EXCLUDE` in `collect-static.sh` is a sixth once nothing filters
+through it.
 
-1. the `touched.txt` step in the head job,
-2. the `touched-clean` entry in `POLICY` and the rule in `verdict()`,
-3. `EXCLUDE` in `collect-static.sh`, which now filters nothing,
-4. the closing `git checkout -- .` in `collect-static.sh`. It exists only
-   because the formatter rewrites files. With no formatter it is an unexplained
-   tree-discarding command in a script people run locally.
+**The base tree is the base branch, so it does not have what this PR adds.**
+That bites three ways on the very PR that sets CI up, and each one fails the
+first run:
+
+- `.nvmrc` and the tool configs — fixed by the fetch-from-head step, which is
+  why it sits above `setup-node`.
+- The `packageManager` field, when this PR is what adds it. `pnpm/action-setup`
+  reads it from the base tree and dies with "No pnpm version is specified". Do
+  not check out `package.json` itself into the base tree — it carries the
+  dependency list, and `--frozen-lockfile` would then fail against the base
+  lockfile on every PR that adds a dependency. Write just the toolchain fields
+  to a scratch file and point `package_json_file:` at it.
+- New `package.json` scripts. `collect-static.sh` must call the TOOL
+  (`pnpm exec tsc`), not the script (`pnpm check`), for exactly this reason.
+  Keep the script for humans.
 
 **A library takes no bundle check at all.** Do not adapt `measure-bundle.cjs` to
 walk a `tsc` output directory — a byte budget on that teaches nobody anything.
