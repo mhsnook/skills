@@ -100,8 +100,9 @@ function measure(dist) {
 		if (isEager.has(file)) continue
 		if (!/\.(js|css)$/.test(file)) continue
 		if (file.endsWith('.map')) continue
-		result.lazy = add(result.lazy, sizeOf(file))
-		result.lazy.count++
+		// `add` returns only {raw, gz}, so carry `count` across explicitly —
+		// assigning its result would drop the field and render "NaN lazy chunks".
+		result.lazy = { ...add(result.lazy, sizeOf(file)), count: result.lazy.count + 1 }
 		result.fileCount++
 	}
 

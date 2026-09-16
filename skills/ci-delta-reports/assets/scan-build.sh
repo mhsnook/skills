@@ -20,7 +20,21 @@ set -uo pipefail
 
 DIST="${1:?usage: scan-build.sh <build-output-dir> [fragment-dir]}"
 FRAGMENTS="${2:-}"
-[ -d "$DIST" ] || { echo "no such directory: $DIST" >&2; exit 2; }
+
+# An absent build directory means the build failed, and this scan cannot answer.
+# Report that as a missing measurement rather than exiting — `exit 2` writes no
+# sidecar, and a gated check with no sidecar has to be caught by REQUIRED, which
+# cannot express "required only when the build succeeded".
+if [ ! -d "$DIST" ]; then
+	echo "no such directory: $DIST — the build produced nothing to scan" >&2
+	if [ -n "$FRAGMENTS" ]; then
+		mkdir -p "$FRAGMENTS"
+		printf '#### Build content scan\n\n⚠️ No build output to scan. Check the job log.\n' \
+			>"$FRAGMENTS/60-scan.md"
+		printf '{\n\t"check": "scan",\n\t"missing": true\n}\n' >"$FRAGMENTS/60-scan.json"
+	fi
+	exit 2
+fi
 
 # CONFIGURE: one entry per forbidden pattern, as "regex<TAB>why it must not ship".
 FORBIDDEN=(

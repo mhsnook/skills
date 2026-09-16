@@ -206,6 +206,23 @@ build overwrites it, and remove the worktree with `if: always()`. One rule is
 easy to lose: the base worktree runs the **base branch's** configs, so check the
 tool configs out from head inside the worktree exactly as the base job does.
 
+## Two rules that generalise past the template
+
+**Every `run:` step containing a pipe needs `bash -eo pipefail`.** GitHub's
+default shell for `run:` is `bash -e`, with no pipefail, so a piped step reports
+the LAST command's exit status. `node gate.cjs | tee -a "$GITHUB_STEP_SUMMARY"`
+therefore always exits 0: the gate prints its failures and the job goes green.
+The template sets `defaults.run.shell: bash` once at the top for that reason, so
+a step added later inherits it. The failure is invisible until the first run
+that should have blocked and did not.
+
+**CI runs the tool, not the package script.** `collect-static.sh` calls
+`pnpm exec tsc`, never `pnpm typecheck`. This is the same argument as fetching
+the measurement from head, one level up: the base tree is the base branch, so on
+the PR that introduces a script, the base tree does not have it. Keep the
+package script for humans, who benefit from the shorthand and are never running
+against a tree from before it existed.
+
 ## Known limits
 
 - **Toolchain skew.** Head and base build on separate runners, so in principle
