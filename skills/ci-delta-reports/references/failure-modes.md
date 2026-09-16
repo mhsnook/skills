@@ -8,11 +8,14 @@ A delta reporter's failure mode is not a crash. It is **"no change"**.
 
 ## It reports clean, and nothing is checking
 
-- **A piped step reports the last command's exit status.** GitHub Actions runs
-  `run:` under `bash -e` with no `pipefail`, so `gate | tee` exits 0 however the
-  gate exited. One repo shipped green while the gate printed three failures.
-  Anything piped is affected, including `build | tee log`, which records a
-  failed build as a success. Set the shell once at workflow level, not per step.
+- **A pipeline exits with its LAST command's status, so `errexit` alone never
+  catches a failure upstream of a pipe.** True of every POSIX shell and every
+  runner that spawns one. GitHub Actions runs `run:` under `bash -e` with no
+  `pipefail`, so `gate | tee` exits 0 however the gate exited — one repo shipped
+  green while the gate printed three failures, and `build | tee log` recorded a
+  failed build as a success. Set `pipefail` wherever your runner defines the
+  shell, once rather than per step, or do not pipe the command whose status you
+  need.
 - **A tool that cannot run prints nothing your parser matches.** Do not read the
   exit code alone — `tsc --noEmit` exits 2 for "found errors", which is a
   perfectly successful run. The rule that generalises is **non-zero exit with no
@@ -36,11 +39,12 @@ A delta reporter's failure mode is not a crash. It is **"no change"**.
   How much of the repo gets measured then depends on which package fails first,
   so the delta swings on unrelated changes. That is worse than a wrong count,
   because it looks like movement.
-- **The check scripts were excluded from their own checks.** If head's scripts
-  are copied *into* both trees, any issue in them cancels to "no change", so the
-  usual fix is to exclude them from the deltas — after which a lint error or
-  drift introduced in a check script is invisible to the gate by construction.
-  Keeping head's tooling in a sibling directory avoids the whole problem.
+- **The check scripts were excluded from their own checks.** *(Copy-over layouts
+  only.)* If head's scripts are copied *into* both trees, any issue in them
+  appears on both sides and cancels to "no change", so the usual fix is to
+  exclude them from the deltas — after which drift in a check script is
+  invisible to the gate by construction. Running head's tooling from a sibling
+  directory removes the cancellation, so no exclusion is needed.
 - **The formatter gate's two lists never intersect.** The touched-file list and
   the drift list must have the same path shape — repo-root-relative, no `./`. A
   formatter run from a subdirectory, or a `--list-different` emitting absolute
@@ -49,16 +53,17 @@ A delta reporter's failure mode is not a crash. It is **"no change"**.
 - **Both trees report zero because neither was measured.** An empty output
   directory passes an existence check, so a job that died right after creating
   it reads as a clean bill of health. Check for each expected file, not for the
-  directory.
-- **A dot-directory escapes the glob that was supposed to cover it.**
-  TypeScript's `include: ["**/*.ts"]` does not match `.github/ci/`, so the CI
-  code stays outside the typecheck however emphatically you intended otherwise.
-  Whatever you do to make the check scripts subject to the repo's own checks,
-  plant an error in one and confirm it is reported.
-- **A GitHub expression treats `0` as false.** `fetch-depth: ${{ cond && 0 || 1
-  }}` yields 1 on both branches of the condition, so a step that needed full
-  history quietly got a shallow clone. Anything downstream that walks history
-  then reports whatever a one-commit repository looks like.
+  directory — and check it is non-empty, because a build that wrote nothing is
+  the same failure wearing a disguise.
+- **A dot-directory escapes the glob that was supposed to cover it.** *(Any
+  layout.)* TypeScript's `include: ["**/*.ts"]` does not match `.github/ci/`, so
+  the CI code stays outside the typecheck however emphatically you intended
+  otherwise. Plant an error in a check script and confirm it is reported.
+- **A GitHub expression treats `0` as false.** *(GitHub Actions only.)*
+  `fetch-depth: ${{ cond && 0 || 1 }}` yields 1 on both branches of the
+  condition, so a step that needed full history quietly got a shallow clone, and
+  anything downstream that walks history reports whatever a one-commit
+  repository looks like.
 
 ## It reports change where there is none
 
@@ -135,11 +140,6 @@ A delta reporter's failure mode is not a crash. It is **"no change"**.
 
 ## Traps in the writing, not the code
 
-- **Matching the sticky comment on its visible heading.** Reword the heading and
-  every comment on an open PR is orphaned, so the next run posts a second one.
-  Use a hidden marker.
-- **Retiring a comment string the new comment also starts with.** The workflow
-  then deletes what it just posted.
 - **Excluding vendored paths only in the tool's config.** Until the configs are
   shared, each tree reads its own, so a PR that edits an ignore rule moves its
   own baseline.
