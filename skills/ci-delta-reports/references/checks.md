@@ -1,178 +1,241 @@
-# The six checks
+# The checks
 
-Per-check detail: what to run, how to normalise the output, and what the delta
-means. The diff engine only needs one sorted line per issue, so any tool that
-can be coaxed into `file:line:col: message` drops straight in.
+Per check: what to measure, how to normalise it, and what the delta means. The
+diff only needs one sorted line per issue, so any tool that can be coaxed into
+`file:line:col: message` drops straight in.
+
+## 0. Build outcome
+
+Run both builds under "continue on error" and keep each log. Two outcomes give
+four messages:
+
+| head | base | Say |
+|---|---|---|
+| builds | builds | nothing at all |
+| builds | broken | this PR fixes the build |
+| broken | builds | this PR breaks the build, with a log excerpt |
+| broken | broken | the base branch is already broken — repair it first |
+
+That last row is why both trees are read. Telling someone they broke a build
+they inherited wastes their afternoon.
+
+Quote the log from the **first error**, not the tail: most tools print a
+summary, a stack and an exit code after the useful part. Check whether your
+build tool timestamps its lines, and anchor on words that appear only in a
+failing build — successful builds print `[vite]` and plugin names too.
+
+"Skipped" and "cancelled" are not "success". A tree that was never built has not
+been shown to build.
+
+**Gate:** always. A PR whose tree does not build cannot be verified by anything
+else in the report.
 
 ## 1. Type errors
 
-**Normalised form:** the tool's own error lines, sorted, with summary lines
-stripped.
+**Normalised form:** the tool's own error lines, sorted unique, with summary
+lines stripped. `Found 12 errors` changes whenever the count does, so it diffs
+as a permanent phantom issue.
 
-| Language | Command | Parser |
-|---|---|---|
-| TypeScript | `tsc --noEmit` piped through `grep ': error TS'` | `parsers.tsc` |
-| Python | `mypy --no-error-summary --no-color-output .` | `parsers.unix` |
-| Go | `go vet ./... 2>&1` | `parsers.unix` |
-| Rust | `cargo check --message-format short 2>&1` | `parsers.unix` |
+| Language | Command |
+|---|---|
+| TypeScript | `tsc --noEmit`, keeping only lines matching `: error TS` |
+| Python | `mypy --no-error-summary --no-color-output .` |
+| Go | `go vet ./...` |
+| Rust | `cargo check --message-format short` |
 
-Strip the summary line in every case. `Found 12 errors in 5 files` changes
-whenever the count does, so it diffs as a permanent phantom issue.
+**Generate before you typecheck.** If the typechecker needs generated
+declarations, run that step in seconds rather than making the build a
+prerequisite — a tree that does not build still deserves a type report. The
+exception is a workspace whose packages resolve each other through built
+declaration files: there the build *is* the generation step, and an unbuilt tree
+reports a phantom missing-module error for every sibling. One repo measured 41
+unbuilt against 0 built.
 
-**Gate advice:** `no-new` is right for almost everyone. Type errors are
-unambiguous and cheap to fix at the moment you introduce one.
+Not every typechecker prints `tsc` format. `astro check` prints
+`file:line:col - error ts(NNNN):` with ANSI colour and code frames; strip the
+colour, keep the diagnostic lines, and rewrite the separator.
+
+**Gate:** `no-new` suits almost everyone. Type errors are unambiguous and cheap
+to fix at the moment you introduce one.
 
 ## 2. Lint
 
-**Normalised form:** `file:line:col: message`, several linters merged, sorted
-and de-duplicated.
+**Normalised form:** `file:line:col: message`, several linters merged into one
+sorted list. A reviewer cares that there is a new issue at `src/foo.ts:12`, not
+which tool found it. Keep the rule name in the message so the fix stays obvious.
 
-| Tool | Flag |
-|---|---|
-| ESLint | `-f unix` |
-| oxlint | `-f unix` |
-| Ruff | `--output-format concise` |
-| golangci-lint | `--out-format line-number` |
-| Clippy | `--message-format short` |
+Filter vendored and generated paths before sorting; they produce issues nobody
+on the PR can act on, and they can outnumber the real ones.
 
-Merging linters into one list is deliberate: a reviewer cares that there is a
-new issue at `src/foo.ts:12`, not which of the two tools found it. Keep the
-rule name in the message so the fix is still obvious.
+Warnings and errors are worth separating if the tool distinguishes them: gate on
+errors, report warnings.
 
-Filter vendored and generated paths *before* sorting. They produce issues that
-nobody reviewing the PR can act on, and they can outnumber the real ones.
-
-**Gate advice:** `no-new` on a maintained codebase. On a legacy one, start
-`report-only` for a few weeks so the team sees the number, then tighten. Going
-straight to `no-new` on a repo with thousands of existing issues is how these
-workflows get disabled.
+**Gate:** `no-new` on a maintained codebase. On a legacy one, start report-only
+for a few weeks so the team sees the number, then tighten. Going straight to
+`no-new` on a repo with thousands of existing issues is how these workflows get
+switched off.
 
 ## 3. Formatter drift
 
-**Normalised form:** a sorted list of file paths — the files the formatter
-would rewrite.
+**Normalised form:** a sorted list of file paths — the files the formatter would
+rewrite.
 
-Run whatever formatter the repo already runs. Read its command out of the
-`scripts` block rather than asking — a repo that has a `format` script has
-already made this decision, and the check works the same whichever tool is
-behind it. If two formatters are configured for different file types, run both
-and concatenate; the output is a path list either way.
+Use the tool's **read-only list mode**. Running it in write mode and diffing the
+tree answers the same question and destroys uncommitted work outside CI.
 
-Run it in write mode, then read `git diff --name-only`. That is one pass
-instead of two, and it gives the exact file set rather than a count. Then
-`git checkout -- .`.
+Run whatever formatter the repo already runs; read the command out of its
+scripts rather than asking. If two formatters cover different file types, run
+both — the output is a path list either way.
 
-Do not use `--check` mode. It exits non-zero and prints a list in a different
-shape per tool, which you would then have to parse.
-
-This check is set-difference only — pass `proximity: 0`. The unit is the file.
-
-Group the remaining drift by extension in the comment. Eighty `.sql` files read
-very differently from eighty spread across `.ts` and `.tsx`, and one stray
-`.css` is easy to spot and fold into the current PR.
+This check is set-difference only. The unit is the file, so line-shift pairing
+does not apply.
 
 ### The gate is scoped to touched files, not to the delta
 
 Formatting is not linting. The formatter applies to every file the PR touched,
-every time — new drift or old — and never to a file it left alone. So this is
-the one check that does not gate on `no-new`.
+every time, and never to a file it left alone. So the gate is the intersection
+of the PR's own file list with the drift list, and it fails on any file in both
+— new drift or old.
 
-Mechanically: the head job emits `touched.txt` — `git diff --name-only
---diff-filter=d <base sha> HEAD`, sorted — and the report step intersects it
-with head's drift list. The gate rule is `touched-clean`, and it fails on that
-intersection.
+The repo-wide total still belongs in the comment, with a trend arrow, as
+context. Group it by extension: eighty `.sql` files read very differently from
+eighty spread across `.ts` and `.tsx`.
 
-Three things to get right, all of which fail silently:
+**If the repo has no formatter**, this check does not exist. Do not leave its
+machinery behind — the touched-file list, the policy entry, the fragment — or
+the comment renders "no list of touched files was produced" forever. Adopting a
+formatter is a separate decision with a much larger diff. Offer it; do not
+smuggle it in.
 
-- **Both lists must use the same path shape.** `git diff --name-only` gives
-  repo-root-relative paths with no `./` prefix, on both sides, which is exactly
-  why the drift list is produced that way too. Swap in `--list-different` or a
-  formatter run from a subdirectory and the paths stop matching — the
-  intersection is then empty on every PR and the gate silently never fires.
-- **Diff against the right commit.** With the default `pull_request` checkout,
-  `HEAD` is the merge ref, so a two-dot diff against `base.sha` is the PR's own
-  footprint. Check out `head.sha` instead and two-dot silently widens to every
-  file that landed on base since the branch diverged — use three-dot there.
-- **An absent `touched.txt` is not an empty PR.** Treat a missing list as a
-  crashed step and fail, the same as any other missing measurement. Otherwise a
-  broken workflow reads as a clean bill of health.
-
-Vendored and generated paths are filtered out of the drift list before any of
-this, so a touched file under `EXCLUDE` cannot block the PR. That is deliberate
-— checking in a regenerated file should not require formatting it.
-
-**Gate advice:** `touched-clean`. The repo-wide total stays report-only, with
-the trend arrow doing that work.
+**Gate:** touched-clean.
 
 ## 4. Bundle size
 
-**Normalised form:** byte counts, raw and gzipped, on several axes.
+**Normalised form:** byte counts, raw and compressed, on several axes.
 
-Measure the **eager-load set** — everything `index.html` references directly —
-not the whole output directory. Lazy chunks are part of the app a user may
-never download, so folding them into one total hides the number that matters.
+Measure the **eager-load set** — what a first paint must download — not the
+whole output directory. Report lazy chunks separately: a route split out of the
+eager set is a win that one total would hide.
 
-Report these axes separately, because they move for different reasons:
+Axes that move for different reasons, and so belong apart:
 
-- **Eager total** — what a first paint costs.
-- **Entry chunk** — your own code, re-downloaded on every deploy.
-- **CSS** — render-blocking, and moves when design changes rather than logic.
-- **Vendor chunks** — compared by content hash, not size.
+- **Eager total** — what a first paint costs
+- **Entry chunk** — your own code, re-downloaded on every deploy
+- **CSS** — render-blocking, and moves with design rather than logic
+- **Chunk identity** — compared by content hash, not size
 
-That last one is the non-obvious axis and often the most useful. A vendor chunk
-whose hash is unchanged is still in returning visitors' caches. A PR that adds
-2 kB to a vendor chunk has really cost every returning user the *whole* chunk
-again, which may be 200 kB. Report identity, then size.
+That last one is the axis people miss and often the most useful. A chunk whose
+hash is unchanged is still in returning visitors' caches, so a PR that adds 2 kB
+to one has really cost every returning visitor the whole chunk again. Report
+which chunks changed first, sizes second.
 
-**Watch for:** a bundler that reads environment variables at build time may
-tree-shake large dependencies away when those variables are missing, producing
-a build that looks dramatically smaller and means nothing. Set dummy-but-truthy
-values in CI and sanity-check that a known dependency is present in the output.
+Compare the **union** of both trees' chunks, not the intersection. A report that
+only lists chunks present on both sides cannot show a chunk that appeared or
+disappeared, which is the largest thing that can happen to this axis.
 
-**Gate advice:** a gzipped byte budget on the eager total, generous enough that
-only real regressions trip it. Percentage budgets misbehave on small bundles.
+A project with manual chunk groups sees its own shared chunks in that list too,
+and those re-hash on most changes. The list answers "what does a returning
+visitor re-download", not "what went wrong".
+
+### When there is no HTML entry point
+
+- **A library.** Take no bundle check. `publish --dry-run` is the check that
+  matters, because it catches a package shipping the wrong files.
+- **A server or Worker bundle.** Report what the deploy tool reports, not what
+  the output directory sums to: the platform compresses the assembled bundle
+  once and counts only what the entry point pulls in, so a sum over files is not
+  the quantity the limit applies to. Where there is a hard limit — Cloudflare
+  rejects a Worker over 64 MiB compressed, on every plan — report it as a share
+  of that limit rather than as a trend, and check the current figure rather than
+  trusting this sentence.
+- **A split client/server output.** Two axes, never one total.
+- **A server-rendered app with no HTML at all.** The eager set lives in the
+  framework's route manifest, and the manifest may not be a data file: TanStack
+  Start compiles it into a module inside the *server* build, and Next.js keeps
+  its own under `.next`. Find it, and parse it by matching delimiters rather
+  than by a regex over indentation — a regex that assumes the emitted
+  whitespace breaks on the next formatter change and falls back silently.
+  Record which source the eager set came from and print it, so a fallback to
+  walking the directory is visible rather than passing as a number.
+
+A Worker repo wants two instruments rather than one: the client bundle takes
+this check, and the Worker takes a deploy dry-run. That dry-run bundles exactly
+as a deploy would and is the only thing validating the deploy config and its
+bindings — a binding typo passes every other check in the report. It runs after
+the build, because an assets binding needs the built output to exist.
+
+**Watch for:** a bundler that reads environment variables at build time can
+tree-shake dependencies away when they are missing, producing a build that looks
+dramatically smaller and means nothing. Set dummy-but-truthy values and
+sanity-check that a known dependency survived.
+
+**Gate:** report-only until someone has watched the number for a few weeks.
+Then a byte budget, generous enough that only real regressions trip it.
+Percentages misbehave on small bundles — 5% of 40 kB is one dependency bump.
+Whatever the budget, ignore deltas of a few hundred bytes: two builds of the
+same commit differ by that much.
 
 ## 5. Tests
 
 **Normalised form:** counts plus a list of failures.
 
-Single-branch. A test passes on head or it does not; there is nothing to
-compare against base. The delta framing does not apply here, and pretending
-otherwise produces a confusing report.
+Single-branch. A test passes on head or it does not; there is nothing to compare
+against base, and pretending otherwise produces a confusing report.
 
-Run with `continue-on-error: true` and let the report job own the failure.
-Otherwise the job dies before writing its fragment and the comment loses the
-one section a contributor most wants to read.
+Run it so a failure still reaches the comment, and let the report job own the
+verdict. Emit machine-readable output — `--reporter=json`, `--json-report`,
+`-json` — because parsing human output breaks on every minor version.
 
-Emit machine-readable output: `--reporter=json` for Vitest and Jest,
-`--json-report` for pytest, `-json` for `go test`. Parsing human output breaks
-on every minor version.
+In a workspace, expect **one report per package**, and carry the step's own
+outcome into the renderer.
 
-Cap the failure list — 20 is plenty — and truncate each message to its first
-line. Full stack traces belong in the job log and the uploaded artifact.
+Cap the failure list at about 20 and truncate each message to its first line.
+Stack traces belong in the job log.
 
-**Gate advice:** `no-new`, meaning any failure fails the build. Also fail when
-the results file is missing, which is a crashed runner rather than a clean run.
+**Gate:** any failure fails, and so does a missing report.
 
-## 6. Bundle content scan
+## 6. Build content scan
 
 **Normalised form:** a list of forbidden strings found in the built output.
 
-No template ships for this one, because "must never ship" means something
-different in every project. Common instances:
+No default ships, because "must never ship" means something different in every
+project. Common instances: test-only helpers reachable from the entry point, a
+debug flag left on, a staging hostname, a development key.
 
-- Test-only helpers or fixture data reachable from the production entry point
-- A debug or verbose logging flag left enabled
-- A staging hostname or a development API key
-- A dependency that was supposed to be `devDependencies`-only
+Ask what the forbidden strings are; do not guess. Keep a reason on each entry —
+a bare pattern list rots within months and nobody dares delete an entry they
+cannot explain. Prefer literal strings over clever patterns.
 
-Write it as a `grep` over the build output that exits non-zero on a hit, and
-ask the developer what the forbidden strings are. Keep the list in one file
-with a comment per entry saying why it must not ship — a bare regex list rots
-within months.
+Single-branch, and it needs the build. Scan the same output the bundle
+measurement already read; never build twice. Write its result into the same
+comment: a check that only turns a job red is a check people re-run rather than
+read.
 
-Single-branch, and it builds. If bundle size is also in play, run both scans
-over the same `dist/` rather than building twice.
+**Gate:** always. A leaked key is not a trend to watch.
 
-**Gate advice:** always gating, never report-only. A leaked key is not a trend
-to watch.
+## 7. HTTP contract — optional, head only
+
+**Skip this unless the repo asks for it.** Most adoptions do not take it, and a
+repo with end-to-end tests already covers the ground.
+
+It catches what no static check can: a redirect that lost its target, a page
+that started returning 404, a cache header that quietly went `no-store`. Start
+the built server, wait for it to answer, then run a request-only suite — no
+browser, so no browser download. A hermetic script that boots the real runtime
+locally fits the same slot.
+
+Four things make the difference between a suite that catches those and one that
+passes regardless: fail when the server never becomes ready rather than letting
+a poll loop fall through; do not follow redirects, or a 301 → 200 chain reads as
+200; assert only headers that are stable across two runs of the same build; and
+list the routes literally, because a glob over the app's own routes passes when
+a route disappears.
+
+## Workspaces
+
+**Skip this section unless the repo has a workspace file listing packages.** In
+a single-package repo none of it applies.
+
+A recursive runner changes every check above. See failure-modes.md for the path
+splice, bail behaviour, per-package test reports, and the reporter format that
+the splice depends on.

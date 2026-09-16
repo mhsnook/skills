@@ -1,166 +1,267 @@
 # Architecture
 
-Why the generated workflow is shaped the way it is. Read this before adapting
-the templates — several choices look arbitrary and are not.
+The structural decisions, why each one is the way it is, and the one algorithm
+worth specifying exactly. Everything here is language-agnostic; write it in
+whatever the repository already uses.
 
-## The shape: one job per tree, not one per check
+## One job per tree, not one per check
+
+Two trees get measured: the PR's, and the base branch's. Run **one job per
+tree**, each installing once and building once, then answering every question
+that tree can answer. A third job fans in, diffs the two, posts the comment and
+owns the verdict.
 
 ```
-   ┌───────────────────────┐   ┌───────────────────────┐
-   │        head           │   │        base           │
-   │  install ─┐           │   │  install ─┐           │
-   │  build ───┤           │   │  build ───┤           │   in parallel
-   │  static · measure ·   │   │  static · measure     │
-   │  scan · tests         │   │                       │
-   └──────────┬────────────┘   └──────────┬────────────┘
-              │ artifact                  │ artifact
-              └────────────┬──────────────┘
-                           ▼
-                    ┌─────────────┐
-                    │   report    │  if: always()
-                    └─────────────┘
-                 diff · one comment · one verdict
+head   install → build → typecheck, lint, format, bundle, tests, scan → artifact
+base   install → build → typecheck, lint, format, bundle               → artifact
+report                    diff both artifacts → one comment → gate
 ```
 
-Two installs and two builds, whatever the number of checks.
+The alternative — a job per check — pays an install and a build per job, which
+is how the bill explodes. Which checks can share work is decided by **which tree
+they need**, not by what kind of check they are: type errors, lint, formatter
+drift and bundle size need both trees; tests and the content scan need only
+head.
 
-The instinct is to give each check its own job, which reads cleanly in the
-Actions UI. It is also how the cost explodes: what is expensive here is
-installing dependencies and building, and both are paid **per job**, not per
-check. Five check-jobs means five installs.
+Head and base run in parallel, so wall clock is roughly the slower tree.
 
-What actually decides whether two checks can share work is which tree they
-need:
+**An alternative worth knowing:** one job, with the base branch as a worktree
+beside the head checkout. It costs the parallelism, and wins four things — one
+install when the lockfile is unchanged (symlink the base tree's dependencies),
+no artifact round-trip, both measurements provably from one machine, and no
+path-shape join for the formatter gate, because you can ask the formatter
+directly which of the PR's own files it would rewrite. It breaks any tool that
+prints absolute paths, because the two trees sit at different roots and every
+finding then reads as one resolved plus one new.
 
-| Check | Needs |
-|---|---|
-| Type errors, lint, formatter drift, bundle size | both trees |
-| Tests, build-content scan | head only |
+## The diff happens in the report job, over artifacts
 
-So the split is by tree. Each job installs once, builds once, and runs every
-check that tree can answer. `head` and `base` do not depend on each other, so
-they run concurrently and wall-clock is roughly one install plus one build, not
-two.
+Neither tree is checked out there. Each measuring job writes small summaries —
+one sorted line per issue, or a JSON of byte counts — and uploads them. That is
+what lets the two builds happen once each, in parallel, on separate runners.
 
-The bundle content scan reads the same `dist/` the measurement just read. Two
-scans, one build. Building twice for two questions about one artifact is the
-mistake this layout exists to prevent.
+It also keeps the diff logic pure. Put the comparison and the rendering in one
+module with no API calls in it, and the platform coupling in another. The first
+is testable in the repo's own test suite without a token; the second is a thin
+wrapper you verify on the first real run.
 
-## Why the diff moved into the report job
+**One measurement file per tree** keeps that boundary honest. A shape along
+these lines is enough:
 
-Each build job **measures** and writes a summary — sorted issue lists for the
-static checks, a small JSON for the bundle. Neither job compares anything.
+```
+measurement = {
+  tree:   "head" | "base",
+  build:  { ran, ok, log },
+  checks: {
+    typecheck: { ran, issues: [ "file:line:col: message", … ] },
+    lint:      { ran, issues: [ … ] },
+    format:    { ran, drifted: [ path, … ], touched: [ path, … ] },
+    tests:     { ran, total, failed, failures: [ … ] },
+    bundle:    { ran, fileCount, eager: {…}, lazy: {…}, chunks: { name: hash } },
+  },
+}
+```
 
-That is what allows the two trees to live on separate runners. If the diff
-happened in a build job, that job would need both trees, which forces them back
-into one job and back into serial execution.
+`ran` is the field that matters, and it carries more than a boolean's worth. A
+check that could not run is not a check that found nothing, and every trap in
+failure-modes.md about reporting clean is a missing `ran`. Set it false whenever
+the tool exited without parseable output, and make the report block on it.
 
-The report job then downloads two summaries and diffs them. It checks out the
-repository only to get the scripts; it never needs either build.
+## Both trees must be measured by the same instrument
 
-## Why the base job fetches its scripts from head
+This is the central problem, and most of the traps in failure-modes.md are
+consequences of getting it wrong.
+
+The base branch has its own copy of the check scripts, possibly an older one. If
+each tree were measured by its own version, a PR that edits a script would show
+up as a change in the codebase. So **head's measuring tools measure both trees**.
+
+The clean way to do that is a second, sparse checkout of the head SHA into a
+sibling directory, rather than copying files over the base tree one path at a
+time:
 
 ```yaml
-git checkout "${{ github.event.pull_request.head.sha }}" -- .github/ci/
+- uses: actions/checkout@v7
+  with:
+    ref: ${{ github.event.pull_request.head.sha }}
+    path: .ci-head
+    sparse-checkout: .github/ci
 ```
 
-The base branch has its own copy of `.github/ci/`, possibly an older one. If
-each tree were measured by its own version of the collection script, a PR that
-edits the script would show up as a change in the codebase. Pinning both sides
-to the head branch's scripts keeps the comparison about the code.
+Cone-mode sparse checkout always includes the repository root, so every root
+config arrives without being named. That property is the whole point: there is
+no list to maintain and nothing to forget. Head's scripts then live *beside* the
+measured tree rather than inside it, so they are not part of what gets measured,
+and they do not need excluding from their own checks.
 
-The trade-off is real and worth stating: a PR that breaks the collection script
-breaks the base measurement too. That is the correct failure — it is visible
-immediately, rather than producing a plausible and wrong delta.
+It also solves the bootstrap problem in one move. The base branch does not
+contain the files the PR adds to make CI work — the runtime-version file, the
+package-manager version, the scripts themselves — and every adoption hits this
+on its first run.
 
-## Why line-shift pairing exists
+### Judgment config and build config are different
 
-Insert one import at the top of a file and every issue below it moves down a
-line. A naive set difference then reports 40 resolved and 40 new. The report
-becomes noise, and worse, a `no-new` gate blocks a PR that introduced nothing.
+Only some configs belong to the instrument:
 
-`differential()` pairs an appeared item with a disappeared one when the file,
-the column, and the message all match and the line moved by no more than
-`proximity` (default 10). Paired items are counted as `moved` and excluded from
-both totals.
+- **Judgment configs** decide *what counts as an issue*: lint rules, format
+  rules, type strictness, and the ignore files the tools read to decide what to
+  scan. Share head's copy. A PR that turns on a rule otherwise has its base tree
+  judged by the old rule, and every file the rule touches reads as newly broken.
+- **Build configs** decide *what gets built*: the bundler config, the deploy
+  config. Each tree uses its own. A build-config change is a real change, and it
+  is exactly what the bundle delta exists to show — share it and you erase the
+  effect you are measuring.
 
-Deliberate limits:
+When a PR changes a judgment config, the report will show a wall of new issues.
+That is rare, it happens only when someone is working on the CI setup itself,
+and the person reading the report can see why. Do not build machinery for it.
 
-- **Column must match exactly.** If the column moved, the code itself changed,
-  not just its position. That is a real new issue.
-- **Message must match exactly.** Same location, different rule, is a new issue.
-- **Only line numbers get tolerance.** Nothing else is fuzzy.
+Some judgment configs must resolve from the tree root — a typechecker following
+relative project references, a tool reading its config from the working
+directory. Those get copied in rather than read from the sibling checkout.
 
-Set `proximity` to `0` for a plain set difference. Do that whenever the unit of
-change is a whole file — formatter drift, for instance, where there is no line
-number to shift.
+## Line-shift pairing
 
-## Why one gate ignores the delta
+The one algorithm worth specifying. Without it, inserting a line above an
+existing error reports one new issue and one resolved issue, and a PR that adds
+an import to a file with ten errors reads as twenty changes.
 
-Formatting is not linting. The formatter applies to every file you touch, every
-time, so the question is not "did this PR add drift?" but "is anything this PR
-touched still unformatted?"
+**It needs two keys, and conflating them is the trap.** Membership uses the
+issue's full position; pairing uses its kind. Use one key for both and the
+algorithm does nothing at all.
 
-That makes it the one check whose gate needs a third input beyond the two trees:
-the PR's own file list. `touched-clean` reads its intersection with head's
-drift rather than `added`. The delta is still computed and still reported; it
-just is not what fails the build.
+```
+parse each line into { file, line, column, message }
 
-## Why the formatter runs last in its script
+place = file + line + column + message   # is this the same issue, here?
+kind  = file + message                   # is this the same issue, anywhere?
 
-Read-only checks run concurrently with `&` and `wait`, since the typechecker is
-the long pole and the linters finish underneath it.
+resolved = base issues whose PLACE is absent from head
+added    = head issues whose PLACE is absent from base
 
-The formatter cannot join them. It **rewrites files**, and the set of files it
-rewrote *is* the drift measurement — no separate `--check` pass is needed.
-Running it alongside a typechecker would have it editing files out from under
-the tool. So it runs after, and the tree is restored with `git checkout -- .`
-immediately, or every later step in the job sees a dirty checkout.
+for each a in added:                     # one-to-one, so consume as you go
+    find the first unconsumed r in resolved where
+        kind(r) == kind(a) and abs(r.line - a.line) <= PROXIMITY   # default 10
+    if found: consume both, and count one "shifted"
+```
 
-## Why fan-in rather than one comment per job
+Report the shifted count separately and quietly: "3 shifted, not counted". It
+tells a reader the number is doing real work.
 
-Parallel jobs cannot safely share a comment — two finishing together will race,
-and one overwrites the other. The options are one comment per job, or a fan-in
-job that owns the write.
+Three properties matter, and each fails differently:
 
-Fan-in wins on the thing that matters, which is the reader: a PR with four bot
-comments gets collapsed and ignored. It also puts the pass/fail decision in one
-file, so "how strict are we?" has one answer instead of being spread across job
-definitions.
+- **Membership on `place`.** Key membership on `kind` and a moved issue is
+  present on both sides, so it never enters `resolved` or `added`, the pairing
+  step is unreachable, and `shifted` is always zero. Worse, an issue that moved
+  400 lines — a different finding, in practice — cancels silently.
+- **Pairing on `kind`.** Include the line number and nothing ever pairs.
+- **One-to-one.** Consume each match, or ten errors in a moved block collapse
+  into one.
 
-The cost is a serialised final job, roughly 30 seconds, and `if: always()` is
-required — without it, a failing check job cancels the report and the
-contributor sees a red X with no explanation.
+Whether `column` belongs in `place` is a judgement call. Including it catches a
+re-indent as a change; excluding it forgives one. Pick, and write the test.
 
-## Why the gate is separate from the report
+### Test cases
 
-The comment always posts. The gate then reads the same JSON sidecars and
-decides. Two consequences worth keeping:
+Whatever you write it in, make these pass. They are the cheap ones, and the
+first two are the ones that fail silently.
 
-- A red build still explains itself.
-- Strictness lives in one object in `gate.cjs`. Loosening a rule during a
-  migration is a one-line edit, not a workflow rewrite.
+| base | head | expect |
+|---|---|---|
+| `a.ts:10 X` | `a.ts:14 X` | 0 new, 0 resolved, 1 shifted |
+| `a.ts:10 X` | `a.ts:450 X` | 1 new, 1 resolved, 0 shifted |
+| `a.ts:10 X` | `a.ts:10 X` | 0 new, 0 resolved, 0 shifted |
+| `a.ts:10 X` | `a.ts:12 X`, `a.ts:13 X` | 1 new, 0 resolved, 1 shifted |
+| `a.ts:10 X`, `a.ts:11 X` | `a.ts:14 X` | 0 new, 1 resolved, 1 shifted |
+| `a.ts:10 X` | `b.ts:10 X` | 1 new, 1 resolved, 0 shifted |
+| (empty) | `a.ts:10 X` | 1 new |
 
-A missing sidecar is a failure, not a pass. A runner that crashed before writing
-output must not read as a clean run.
+Renames defeat this, and nothing here fixes that: a renamed file makes every
+issue in it new and its old path resolved. Say so in the PR template so
+reviewers expect it.
+
+## The gate is separate from the report
+
+Post the comment, then decide. Two reasons:
+
+- **A red build still explains itself.** A contributor who cannot see why it
+  failed will guess.
+- **Strictness lives in one place.** Loosening a rule during a migration is a
+  one-line edit rather than a workflow rewrite.
+
+Keep the policy as data — one rule per check — rather than scattered `if`
+statements across the rendering code. The useful rules in practice:
+
+| Rule | Fails when |
+|---|---|
+| report-only | never; the comment is the whole point |
+| no-new | this PR adds any issue of this kind |
+| touched-clean | any issue in a file this PR touched, new or pre-existing |
+| a budget | the measured value grows past a number |
+| must-pass | a head-only step simply failed — a deploy dry-run, a smoke suite |
+
+**Missing input blocks.** A check that produced no measurement did not pass; it
+crashed. So did a tree whose whole job died, and a check that wrote nothing at
+all. One rule covers all three: a tree counts as measured only when every
+expected output is present, and anything else blocks. That is stronger than
+checking that a directory exists, which an empty directory satisfies.
+
+## One comment, updated in place
+
+Match on a hidden marker (`<!-- ci-delta:pr-checks -->`), not on the visible
+heading. Rewording a heading orphans every comment already on an open PR, and
+the next run posts a second one beside it.
+
+Each check contributes three things, and keeping them separate is what lets the
+comment stay short while the gate stays strict:
+
+| Contribution | Goes to |
+|---|---|
+| a delta, a status and a label | one row of the summary table |
+| the counts and the offending items | one entry in the detail list |
+| a verdict against its policy | the gate step |
+
+Give each check an ordering key so a table row and its detail entry line up, and
+so jobs finishing out of order still render the same. Cap the detail — platforms
+reject a comment body over about 65,000 characters, and a mechanical refactor
+will find that limit. The table has a fixed number of rows and never needs
+capping, which is most of why it belongs at the top.
+
+A check that measured nothing still gets a row. An absent row and a passing row
+look identical at a glance, which is the failure this whole report exists to
+avoid.
+
+Page through the comments when you look for the marker. A busy PR passes 100
+comments, and a single-page lookup silently stops finding the comment it wrote,
+so the report starts posting a new one per push at exactly the moment the thread
+is already long.
+
+If the repo already has a bot comment this replaces, delete it once on the first
+run. Match only comments reporting the same checks: a deployment bot's comment
+is not a duplicate. Make sure the new body cannot match the string you retire on,
+or the workflow deletes what it just posted.
+
+**The tool versions are part of the instrument too, and you will not control
+them.** Each tree installs its linter from its own lockfile, so a PR that bumps
+the linter measures the two trees with two different tools. Accept it — pinning
+the base tree to head's dependency list would break the lockfile check that
+makes either measurement trustworthy — and know that a dependency-bump PR is the
+other case, alongside a rules change, where the delta is noise and the reader
+can see why.
 
 ## Known limits
 
-- **Toolchain skew.** Head and base build on separate runners, so in principle
-  they could get different runner images mid-rollout. `setup-node` pins the
-  language version and the lockfile pins dependencies, so the exposure is small.
-  If a project is sensitive to it, merge the two jobs into one and add the base
-  branch as a `git worktree` — you trade the parallelism for a guarantee that
-  both measurements came off one machine.
-- **Fork PRs.** `pull_request` grants a read-only token to forks, so the comment
-  step cannot write. Either switch to `pull_request_target` and accept its
-  security implications — it runs the base branch's workflow with a write token,
-  so never check out and execute fork code in it — or let the comment step fail
-  on forks and rely on the gate's exit code.
-- **Rename churn.** Renaming a file makes every issue in it appear new and its
-  old path resolved. Proximity pairing does not help, because the file key
-  changed. Nothing here fixes that; mention it in the PR template so reviewers
-  expect it.
-- **Retry granularity.** Re-running a failed `head` job re-runs its build and
-  its tests together. Splitting them back out would restore per-check retries
-  at the cost of another install.
+- **Fork PRs.** A `pull_request` run from a fork gets a read-only token, so the
+  comment step cannot write. Either accept that forks see only the gate's exit
+  code, or move the comment to a separate trigger with its own risks.
+- **Toolchain skew.** Head and base build on separate runners. The lockfile and
+  the pinned runtime version keep the exposure small.
+- **The base job is waste on repeat pushes.** Its output is a function of the
+  base SHA and head's configs, and neither changes when someone pushes a
+  follow-up commit — yet it reinstalls and rebuilds every time. It is never the
+  critical path, so it costs money rather than minutes. Cache it on those
+  inputs, or say plainly that you chose not to.
+- **The workflow judges itself.** On a `pull_request` trigger the workflow runs
+  from the PR branch, so the PR introducing this CI is checked by its own new
+  version. That is the real test, and it is also why a bug in the workflow can
+  make that PR look fine when it is not.
