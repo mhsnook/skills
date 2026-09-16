@@ -16,6 +16,51 @@ day one, and the count ratchets down as people touch old files.
 
 Both are legitimate. Ask which one the developer wants — do not assume this one.
 
+## What you will produce
+
+CI that writes one comment on the pull request and updates it in place on every
+push. Something like this:
+
+```markdown
+### PR checks
+_Compared against `main`._
+
+#### Type errors
+❌ **2 new** · 41 on `main` → 43 here · 1 resolved · 3 shifted, not counted
+
+  New:
+    src/client/deck.tsx(88,12): error TS2322: Type 'string' is not assignable…
+    src/shared/vote.ts(14,3): error TS18048: 'entry' is possibly 'undefined'.
+
+#### Lint
+✅ No new issues. 1,204 on `main` → 1,198 here · 6 resolved
+
+#### Formatter drift
+❌ **1 file this PR touches is not formatted.** Run the formatter and commit.
+    src/client/deck.tsx
+
+  Repo-wide drift is context, not a gate: 83 files ↓ from 84.
+  By type: `.ts` 51 · `.tsx` 24 · `.sql` 8
+
+#### Bundle size
+🟢 Eager load 198.4 kB → 199.1 kB gzipped (+0.7 kB)
+    Entry chunk +0.7 kB · CSS unchanged · 12 lazy chunks
+
+  Chunks that changed — repeat visitors re-download these in full:
+    `index.js` — 91.2 kB → 91.9 kB raw, ↑ 0.7 kB
+    11 other chunks keep their hash, 107 kB gzipped, still cached.
+
+#### Tests
+✅ 891/891 passed · 7 reports merged
+```
+
+The **Build** section is absent here on purpose: both trees built, so it says
+nothing. It appears only to report that this PR broke the build, fixed a broken
+base branch, or inherited one that was already broken.
+
+Each section then has a policy — block or report — and one step at the end
+decides the verdict from the same numbers the comment shows.
+
 ## This skill is instructions, not a framework
 
 It ships no code to copy. You are building CI for **this** repository, in
