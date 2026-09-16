@@ -6,7 +6,9 @@ diff only needs one sorted line per issue, so any tool that can be coaxed into
 
 ## 0. Build outcome
 
-Run both builds under "continue on error" and keep each log. Two outcomes give
+Run both builds under "continue on error" and keep each log. If you pipe the
+build into anything to capture that log, read the pipe entry in failure-modes.md
+first: the obvious form records a failed build as a success. Two outcomes give
 four messages:
 
 | head | base | Say |
@@ -40,23 +42,27 @@ as a permanent phantom issue.
 |---|---|
 | TypeScript | `tsc --noEmit`, keeping only lines matching `: error TS` |
 | Python | `mypy --no-error-summary --no-color-output .` |
-| Go | `go vet ./...` |
+| Go | `go build ./...` — `go vet` is analysis, not the typechecker |
 | Rust | `cargo check --message-format short` |
 
-**Generate before you typecheck.** If the typechecker needs generated
-declarations, run that step in seconds rather than making the build a
-prerequisite — a tree that does not build still deserves a type report. The
+Two rules underneath the table, both language-neutral:
+
+**Generate the typechecker's inputs cheaply; do not make the build a
+prerequisite.** A tree that does not build still deserves a type report. The
 exception is a workspace whose packages resolve each other through built
-declaration files: there the build *is* the generation step, and an unbuilt tree
-reports a phantom missing-module error for every sibling. One repo measured 41
-unbuilt against 0 built.
+artifacts — there the build *is* the generation step, and an unbuilt tree
+reports a phantom missing-module error for every sibling (one repo measured 41
+unbuilt against 0 built).
 
-Not every typechecker prints `tsc` format. `astro check` prints
-`file:line:col - error ts(NNNN):` with ANSI colour and code frames; strip the
-colour, keep the diagnostic lines, and rewrite the separator.
+**Normalise the output once, and strip colour before parsing.** Not every
+typechecker prints `file:line:col: message` (`astro check` prints
+`file:line:col - error ts(NNNN):` with ANSI colour and code frames), and a
+parser fed escape codes matches nothing while looking like it ran.
 
-**Gate:** `no-new` suits almost everyone. Type errors are unambiguous and cheap
-to fix at the moment you introduce one.
+**Gate:** `no-new` suits almost everyone — type errors are unambiguous and cheap
+to fix at the moment you introduce one. Run the typechecker on the base branch
+first: if the count is already high, start report-only and say in the comment
+that it tightens at zero.
 
 ## 2. Lint
 
@@ -97,6 +103,10 @@ every time, and never to a file it left alone. So the gate is the intersection
 of the PR's own file list with the drift list, and it fails on any file in both
 — new drift or old.
 
+Those two lists have to use the same path shape or the intersection is empty on
+every PR, and the gate then never fires again. Read the path-shape entry in
+failure-modes.md before you write this one.
+
 The repo-wide total still belongs in the comment, with a trend arrow, as
 context. Group it by extension: eighty `.sql` files read very differently from
 eighty spread across `.ts` and `.tsx`.
@@ -113,21 +123,29 @@ smuggle it in.
 
 **Normalised form:** byte counts, raw and compressed, on several axes.
 
-Measure the **eager-load set** — what a first paint must download — not the
-whole output directory. Report lazy chunks separately: a route split out of the
-eager set is a win that one total would hide.
+Measure **the artifact a consumer actually pays for, as the tool that ships it
+reports it** — not a sum over the output directory. For a web app that is the
+eager-load set, what a first paint must download; for a binary, the linked
+binary; for a package, the published archive; for a container, the image layers.
+**If your build produces nothing a consumer downloads, skip this check.**
+
+The rest of this section is the web-app case, which is where the interesting
+axes are. Report lazy chunks separately: a route split out of the eager set is a
+win that one total would hide.
 
 Axes that move for different reasons, and so belong apart:
 
 - **Eager total** — what a first paint costs
 - **Entry chunk** — your own code, re-downloaded on every deploy
 - **CSS** — render-blocking, and moves with design rather than logic
-- **Chunk identity** — compared by content hash, not size
+- **Chunk identity** — compared by content hash, not size. Applies wherever the
+  artifact is cached in pieces.
 
 That last one is the axis people miss and often the most useful. A chunk whose
 hash is unchanged is still in returning visitors' caches, so a PR that adds 2 kB
 to one has really cost every returning visitor the whole chunk again. Report
-which chunks changed first, sizes second.
+which chunks changed first, sizes second — and get the hash-stripping pattern
+wrong and it silently compares two different files as one (failure-modes.md).
 
 Compare the **union** of both trees' chunks, not the intersection. A report that
 only lists chunks present on both sides cannot show a chunk that appeared or

@@ -26,13 +26,11 @@ head.
 Head and base run in parallel, so wall clock is roughly the slower tree.
 
 **An alternative worth knowing:** one job, with the base branch as a worktree
-beside the head checkout. It costs the parallelism, and wins four things — one
-install when the lockfile is unchanged (symlink the base tree's dependencies),
-no artifact round-trip, both measurements provably from one machine, and no
-path-shape join for the formatter gate, because you can ask the formatter
-directly which of the PR's own files it would rewrite. It breaks any tool that
-prints absolute paths, because the two trees sit at different roots and every
-finding then reads as one resolved plus one new.
+beside the head checkout. It trades the parallelism for one install, no artifact
+round-trip, and a formatter gate you can ask directly rather than joining two
+path lists. It breaks any tool that prints absolute paths, because the two trees
+sit at different roots and every finding then reads as one resolved plus one
+new.
 
 ## The diff happens in the report job, over artifacts
 
@@ -90,9 +88,21 @@ time:
 
 Cone-mode sparse checkout always includes the repository root, so every root
 config arrives without being named. That property is the whole point: there is
-no list to maintain and nothing to forget. Head's scripts then live *beside* the
-measured tree rather than inside it, so they are not part of what gets measured,
-and they do not need excluding from their own checks.
+no list to maintain and nothing to forget. On another platform, use whatever
+fetches one directory of one commit into a path of your choosing — the design
+is "one copy of the instrument, sited outside both trees", not this syntax.
+
+Head's scripts then run from *beside* the measured tree rather than from inside
+it, and that is what keeps their own issues reportable. Copy head's scripts over
+the base tree instead, and both trees hold identical scripts, so any issue in
+them appears on both sides and cancels to "no change" — which is why the older
+layout had to exclude them from the deltas, and why drift in a check script was
+then invisible to the gate. Each tree keeps its own committed copy here, so a
+script's issues diff like any other file's.
+
+That is coverage against *cancellation*. It is not coverage against a tool that
+never looks: see the dot-directory entry in failure-modes.md, and plant an error
+in a check script to confirm it is reported.
 
 It also solves the bootstrap problem in one move. The base branch does not
 contain the files the PR adds to make CI work — the runtime-version file, the
@@ -118,7 +128,9 @@ and the person reading the report can see why. Do not build machinery for it.
 
 Some judgment configs must resolve from the tree root — a typechecker following
 relative project references, a tool reading its config from the working
-directory. Those get copied in rather than read from the sibling checkout.
+directory. There is a test for which: point the tool at head's config from the
+sibling directory and run it against a tree you know has issues. If it errors,
+or reports zero, that config has to be copied into the tree instead.
 
 ## Line-shift pairing
 
@@ -148,15 +160,12 @@ for each a in added:                     # one-to-one, so consume as you go
 Report the shifted count separately and quietly: "3 shifted, not counted". It
 tells a reader the number is doing real work.
 
-Three properties matter, and each fails differently:
-
-- **Membership on `place`.** Key membership on `kind` and a moved issue is
-  present on both sides, so it never enters `resolved` or `added`, the pairing
-  step is unreachable, and `shifted` is always zero. Worse, an issue that moved
-  400 lines — a different finding, in practice — cancels silently.
-- **Pairing on `kind`.** Include the line number and nothing ever pairs.
-- **One-to-one.** Consume each match, or ten errors in a moved block collapse
-  into one.
+Key membership on `kind` instead and a moved issue sits on both sides: it never
+enters `resolved` or `added`, the pairing step is unreachable, `shifted` is
+always zero, and an issue that moved 400 lines cancels silently. Key pairing on
+`place` and nothing ever pairs. The test cases below cover both, plus the
+one-to-one consumption that stops ten errors in a moved block collapsing into
+one.
 
 Whether `column` belongs in `place` is a judgement call. Including it catches a
 re-indent as a change; excluding it forgives one. Pick, and write the test.
@@ -212,14 +221,9 @@ Match on a hidden marker (`<!-- ci-delta:pr-checks -->`), not on the visible
 heading. Rewording a heading orphans every comment already on an open PR, and
 the next run posts a second one beside it.
 
-Each check contributes three things, and keeping them separate is what lets the
-comment stay short while the gate stays strict:
-
-| Contribution | Goes to |
-|---|---|
-| a delta, a status and a label | one row of the summary table |
-| the counts and the offending items | one entry in the detail list |
-| a verdict against its policy | the gate step |
+Each check yields three things — a table row, a detail entry, and a verdict
+against its policy — and keeping them separate is what lets the comment stay
+short while the gate stays strict.
 
 Give each check an ordering key so a table row and its detail entry line up, and
 so jobs finishing out of order still render the same. Cap the detail — platforms
@@ -243,11 +247,10 @@ or the workflow deletes what it just posted.
 
 **The tool versions are part of the instrument too, and you will not control
 them.** Each tree installs its linter from its own lockfile, so a PR that bumps
-the linter measures the two trees with two different tools. Accept it — pinning
-the base tree to head's dependency list would break the lockfile check that
-makes either measurement trustworthy — and know that a dependency-bump PR is the
-other case, alongside a rules change, where the delta is noise and the reader
-can see why.
+the linter measures with two different tools. Accept it: pinning base to head's
+dependencies would void the lockfile check that makes either measurement
+trustworthy. A dependency bump is simply the other PR, alongside a rules change,
+where the delta is noise and the reader can see why.
 
 ## Known limits
 

@@ -16,12 +16,22 @@ day one, and the count ratchets down as people touch old files.
 
 Both are legitimate. Ask which one the developer wants — do not assume this one.
 
+You are building this CI yourself, in whatever language and style the
+repository already uses. These three files stand alone — read all of them
+before you write anything.
+
+- [references/architecture.md](references/architecture.md) — the structural
+  decisions, and the one algorithm worth specifying exactly
+- [references/checks.md](references/checks.md) — per check: what to measure and
+  what the delta means
+- [references/failure-modes.md](references/failure-modes.md) — **read this
+  twice.** Every entry is a real failure from a real adoption, and most of them
+  report "no change" while something is broken.
+
 ## What you will produce
 
 CI that writes one comment on the pull request and updates it in place on every
-push. Something like this:
-
-A summary table, then the detail under it. On a PR with something to fix:
+push: a summary table, then the detail under it. On a PR with something to fix:
 
 ```markdown
 ### PR checks
@@ -54,31 +64,8 @@ _Compared against `main`._
 - **Tests** — 891/891 passed, 7 reports merged
 ```
 
-On a PR with nothing to fix, which is most of them:
-
-```markdown
-### PR checks
-_Compared against `main`._
-
-✅ **All checks passing**
-
-| Check                          | Delta | Status |
-|--------------------------------|-------|--------|
-| Type errors                    |    0  |   ✅   |
-| Formatting (files you touched) |    0  |   ✅   |
-| Lint                           |    0  |   ✅   |
-| Bundle size                    |  0.0% |   ✅   |
-| Test failures                  |    0  |   ✅   |
-
-**Details**
-
-- **Type errors** — none new. 41 on `main`, 41 here.
-- **Formatting** — every file this PR touches is formatted. 84 unformatted
-  elsewhere, unchanged.
-- **Lint** — none new. 1,204 on `main`, 1,204 here.
-- **Bundle size** — eager JS 198.4 kB · CSS 103 kB · 12 lazy chunks. No change.
-- **Tests** — 891/891 passed.
-```
+On a clean PR the same shape renders with zero deltas, a ✅ on every row, and
+one line of detail per check.
 
 Four things in that shape are deliberate:
 
@@ -95,50 +82,29 @@ Four things in that shape are deliberate:
   there before you opened the file. A file you did not touch blocks nothing,
   and is reported only as a trend.
 
-## How to use this skill
-
-You are building CI for your project, in whatever language and style your
-repository already uses, and you will use this skill as general guidance and
-troubleshooting help to set up your own (opinionated) CI job. The skill gives
-you the architecture that works on github actions, and why, the per-check
-detail, and a catalogue of the ways this kind of CI can break on you.
-Read all three before you write anything.
-
-- [references/architecture.md](references/architecture.md) — the structural
-  decisions, and the one algorithm worth specifying exactly
-- [references/checks.md](references/checks.md) — per check: what to measure and
-  what the delta means
-- [references/failure-modes.md](references/failure-modes.md) — **read this
-  twice.** Every entry is a real failure from a real adoption, and most of them
-  report "no change" while something is broken.
-
-These three files stand alone: you need nothing outside them to build this. If
-you happen to have access to either repository below, its CI is a worked example
-of the same design — useful for seeing one set of concrete choices, and not a
-thing to copy.
-
-| Repo | Shape |
-|---|---|
-| `mhsnook/pomoduo`, `.github/ci/` | Vite + Cloudflare Worker, pruned hard after a review pass |
-| `mhsnook/sunlo`, `.github/workflows/` | The largest: two linters, two formatters, an end-to-end job alongside |
-
 ## Step 1 — read the repo first
 
 Determine:
 
-- The package manager and **where its version is pinned**. For pnpm that is the
-  `packageManager` field; pinning the version again in the workflow is the most
-  common way this CI breaks.
+- The package manager and **where its version is pinned** — pnpm's
+  `packageManager` field, `go.mod`, `rust-toolchain.toml`, `.python-version`.
+  Let the setup step read that file; pinning the version a second time in the
+  workflow is the most common way this CI breaks.
 - The runtime version and where it is declared. If nothing declares it, offer to
-  add that file — and see the bootstrap trap in failure-modes.md, because the
-  base branch will not have it yet.
+  add that file — then read *Both trees must be measured by the same instrument*
+  in architecture.md, because the base branch will not have it yet.
 - Which of typecheck, lint, format, build and test exist as real commands. A
   repo with no formatter cannot take the formatter check; adopting one is a
   separate decision with a much larger diff.
 - Whether the typechecker needs generated files first, and whether it is a
   compound command whose first half can fail in a different output format.
 - What the build emits, and in what shape: an HTML entry point, a library
-  directory, a server bundle, a split client/server output.
+  directory, a server bundle, a split client/server output — or nothing a
+  consumer downloads, in which case there is no bundle check to take.
+- Whether any build step globs the whole repository for its inputs. Tailwind v4
+  scans for class names that way, so the files you are about to add change the
+  output. Scope such a glob to its real source before you measure anything, or
+  your first report blames this PR for a pre-existing leak.
 - Whether anything already comments on PRs, so you retire it rather than adding
   a second bot voice.
 - Repo-specific jobs that must survive: a database service, a browser container,
@@ -159,20 +125,16 @@ check then adds only its own run time.
 |---|-------|--------------------------|-------|---------------|
 | 0 | **Build outcome** | Broke it, fixed it, or inherited a broken base | both | free with any build |
 | 1 | **Type errors** | New / resolved, with line shifts discounted | both | one typecheck per tree |
-| 2 | **Lint** | New / resolved, several linters merged into one list | both | runs beside the typecheck, so ≈ free |
+| 2 | **Lint** | New / resolved, several linters merged into one list | both | no extra install or build; its own run time |
 | 3 | **Formatter drift** | Which touched files are unformatted, plus the repo-wide trend | both | seconds |
 | 4 | **Bundle size** | Eager set, entry chunk, CSS, and which chunks stopped being cacheable | both | **forces the build**, then ≈ free |
 | 5 | **Tests** | Pass / fail with failure detail inline | head | the suite's own runtime |
 | 6 | **Build content scan** | Code that must never ship, found in the built output | head | a grep over the build |
 
-Say these out loud, because they change what people pick:
-
-- **Checks 1–3 are close to a package deal.** They run off the same install.
-- **Check 4 is the one that costs.** It forces a build on both trees. If they
-  say no, drop the build steps from both jobs entirely.
-- **Check 6 is nearly free once 4 is in**, because it scans a build that
-  already happened.
-- **Wall clock is roughly the slower tree**, not the sum.
+Read the marginal-cost column out loud. Check 4 is the only one that changes
+the shape of the job: it forces a build on both trees. If they decline it, drop
+the build steps entirely — unless the typechecker needs built declarations
+(checks.md §1), in which case the build stays and only the measurement goes.
 
 Do not quote minute figures for their repo. Install and build time varies by
 more than an order of magnitude, and a confident wrong number is worse than "it
@@ -206,24 +168,26 @@ PR description rather than stalling. These defaults are defensible:
 | Bundle size | report-only | Nobody has watched the number yet, so any budget is invented. |
 | Content scan | skip | Never guess what must not ship. An empty scan is machinery pretending to be a check. |
 
-**Formatting blocks, on a different scope.** It is not linting: the formatter
-applies to every file the PR touched, every time — new drift or old — and never
-to a file it left alone. So it does not gate on the delta like the others; it
-gates on the intersection of the PR's own file list with the drift list. Lead
-with that, and offer report-only only if they ask for the number without the
-teeth.
+**Formatting blocks on a different scope** — the files this PR touched, not the
+delta. Lead with that, because it is what makes the check safe on a repo with
+debt, and offer report-only only if they ask for the number without the teeth.
+checks.md §3 has the mechanics.
 
 ## Step 3 — build it
 
-The architecture reference gives you the shape and the reasoning. Four things
-are worth stating here because they are the ones people get wrong:
+The architecture reference gives you the shape and the reasoning. **Settle one
+question before the rest: how head's measuring tools reach the base tree.** It
+decides the job layout, and it is the difference between a first run that works
+and three that do not — architecture.md, *Both trees must be measured by the
+same instrument*.
 
-- **Check what a content-scanning build will do with the files you are about to
-  add.** Tailwind v4 scans the repository for class-like strings, so adding CI
-  scripts ships more CSS to every visitor — measured at 3.4 kB in one repo and
-  1.6 kB in another. Scope the scan to the client source *before* you measure
-  anything, or your first bundle report blames the PR for a pre-existing leak.
+Four more things are worth stating here, because they are the ones people get
+wrong:
 
+- **Cache the base job.** Its output is a function of the base SHA and head's
+  configs, and neither changes when someone pushes again — yet it reinstalls and
+  rebuilds on every push, for the life of the PR. Key a cache on those two and
+  skip the job on a hit.
 - **Write it in the repository's own idiom.** Its language, its script
   conventions, its test runner. If the repo has a test suite, the diff logic's
   tests belong in that suite — not behind a bespoke `--selftest` flag that
@@ -249,8 +213,10 @@ was verified by reading, and five still failed on their first real run.
   report. It must say that tree was not measured — never "no change".
 - **Prove the formatter gate fires and stops firing.** Plant drift in a file the
   PR touched, then in one it did not.
-- **Prove the check scripts are subject to their own checks.** If you excluded
-  them, drift in them is invisible to the gate by construction.
+- **Prove the check scripts are subject to their own checks.** They are files in
+  the repository like any other, so plant an error in one and confirm it is
+  reported. Two things defeat this: excluding them from the deltas, and a tool
+  whose file glob does not reach a dot-directory.
 - Confirm no leftover placeholder or unreferenced file survives.
 
 Then say plainly that CI cannot be fully verified without a real PR, and that
@@ -270,8 +236,8 @@ had no CI it answers a question nobody asked.
   visible heading.
 - **Normalise before diffing.** Sort every list and strip summary lines like
   "Found 12 errors" — those change with the count and diff as pure noise.
-- **Cap every list.** A mechanical refactor will find the comment size limit.
+- **Cap every list** at about 20 items. A mechanical refactor will find the
+  comment size limit.
 - **A file you touched ships formatted; a file you did not is not your problem.**
-- **Missing input blocks.** Never "no change".
-- **Say nothing when there is nothing to say.** A bot that reports success on
-  every green PR trains people to skim past the one time it does not.
+- **Missing input blocks.** An absent measurement, an empty one, and a tool that
+  could not run are all the same verdict, and none of them is "no change".
