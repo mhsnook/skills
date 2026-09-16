@@ -14,6 +14,8 @@ const path = require('path')
 //   'no-new'           fails when this PR adds any issue of this kind
 //   'touched-clean'    fails on any issue in a file this PR touched, new or
 //                      pre-existing; issues in untouched files never fail
+//   'must-pass'        head-only step that simply succeeded or failed — a
+//                      deploy dry-run, a smoke suite, a contract run
 //   { maxNew: N }      allows up to N new issues
 //   { maxTotal: N }    fails on the absolute count, ignoring the delta
 //   { maxGzDelta: B }  bundle only — fails when gzipped size grows by over B,
@@ -81,6 +83,12 @@ function verdict(check, data) {
 		return data.baseOk ?
 				'this PR breaks the build'
 			:	'neither this PR nor the base branch builds — repair the base branch first'
+	}
+
+	// For a head-only step there is no delta to read, only an outcome. Saying
+	// so explicitly beats faking `new: 1` to reuse the `no-new` branch.
+	if (rule === 'must-pass') {
+		return data.ok ? null : (data.reason ?? 'the step failed — see the job log')
 	}
 
 	if (check === 'tests') {

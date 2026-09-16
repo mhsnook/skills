@@ -26,6 +26,15 @@ concurrency:
   # triggers on `pull_request`, so the value is a constant.
   cancel-in-progress: false
 
+# Every `run:` step gets `bash -eo pipefail`. GitHub's default is `bash -e`
+# with NO pipefail, so a piped step reports the LAST command's exit status:
+# `pnpm build | tee` records a failed build as a success, and
+# `node gate.cjs | tee` means the gate can never fail the run. Setting it here
+# rather than per step is what stops a later step from forgetting.
+defaults:
+  run:
+    shell: bash
+
 env:
   # CONFIGURE: delete this if the repo has a `.nvmrc` — the jobs below prefer
   # `node-version-file`, so one file is the single source of truth.
@@ -100,11 +109,6 @@ jobs:
         id: build
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         continue-on-error: true
-        # `shell: bash` is not decoration. The default shell for `run:` is
-        # `bash -e` with NO pipefail, so `pnpm build | tee` reports tee's exit
-        # status — always 0 — and a failed build records as a success. Check 0
-        # would then never fire. This form is `bash -eo pipefail`.
-        shell: bash
         run: |
           mkdir -p /tmp/out
           echo "VITE_EXAMPLE_URL=http://127.0.0.1:1234" >> $GITHUB_ENV
@@ -130,16 +134,25 @@ jobs:
         run: bash .github/ci/scan-build.sh dist /tmp/out/fragments
 
       # Check 5. continue-on-error so a failure still reaches the comment.
+      #
+      # CONFIGURE: in a workspace, a recursive test command starts one runner
+      # per package and each resolves --outputFile against its own directory.
+      # Write the reports into one directory and pass the DIRECTORY below;
+      # render-tests.cjs merges them.
       - name: Tests
+        id: tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         continue-on-error: true
         run: pnpm test --reporter=json --outputFile=/tmp/test-results.json # CONFIGURE
 
+      # The step's own outcome goes in as well: a runner that dies after writing
+      # some reports leaves files that parse perfectly and count zero failures.
       - name: Render test fragment
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           node -e "require('./.github/ci/render-tests.cjs')({
-            results: '/tmp/test-results.json', out: '/tmp/out/fragments'
+            results: '/tmp/test-results.json', out: '/tmp/out/fragments',
+            outcome: '${{ steps.tests.outcome }}'
           })"
 
       - uses: actions/upload-artifact@v7
@@ -166,23 +179,34 @@ jobs:
       # any later step could fetch it. The same holds for a PR that bumps the
       # Node version: both trees must use the new one.
       #
-      # Everything here is part of the measurement rather than part of the code.
-      # The scripts, because both trees must be measured by the SAME script, or
-      # a change to a script shows up as a change in the codebase. The linter,
-      # formatter and TypeScript configs, because a PR that changes a rule would
-      # otherwise leave the base tree judged by the old rule, so every file that
-      # rule touches reads as newly broken.
+      # What belongs here is the MEASUREMENT, not the code. The scripts, because
+      # both trees must be measured by the same script or a change to a script
+      # reads as a change in the codebase. The toolchain versions, because the
+      # runner has to install something before it can measure anything. The
+      # FORMATTER configs, because the formatter gate is scoped to touched files
+      # and is judged by head's config either way — fetching it only keeps the
+      # repo-wide trend honest.
+      #
+      # What does NOT belong here is any config that drives a GATED delta —
+      # tsconfig, and the linter config when lint is gated. Fetching those makes
+      # the gate fail OPEN: a PR that sets `strict: true` and surfaces 40 errors
+      # has both trees judged by the new option, so the delta is zero, the gate
+      # passes, and the default branch starts failing. Left on its own config,
+      # base reports 0 against head's 40 and the gate blocks. Both are noisy; one
+      # is noisy in the safe direction. See references/architecture.md.
       #
       # One `git checkout` per path: a single call listing all of them fails as
       # a whole when any one is missing, which would silently leave the base
       # tree measured by its own older configs.
       #
-      # CONFIGURE: your linter, formatter and TypeScript config files.
+      # CONFIGURE: your formatter config files. In a workspace, build the list
+      # with `git ls-tree` rather than hardcoding it — a new package otherwise
+      # drops out silently.
       - name: Fetch the measurement from head
         run: |
           git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.head.sha }}"
           git checkout "${{ github.event.pull_request.head.sha }}" -- .github/ci/
-          for f in .nvmrc .oxlintrc.json .oxfmtrc.json .prettierrc.json .prettierignore tsconfig.json; do
+          for f in .nvmrc .oxfmtrc.json .prettierrc.json .prettierignore; do
             git checkout "${{ github.event.pull_request.head.sha }}" -- "$f" ||
               echo "no $f on head, leaving the base copy in place"
           done
@@ -219,11 +243,6 @@ jobs:
         id: build
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         continue-on-error: true
-        # `shell: bash` is not decoration. The default shell for `run:` is
-        # `bash -e` with NO pipefail, so `pnpm build | tee` reports tee's exit
-        # status — always 0 — and a failed build records as a success. Check 0
-        # would then never fire. This form is `bash -eo pipefail`.
-        shell: bash
         run: |
           mkdir -p /tmp/out
           echo "VITE_EXAMPLE_URL=http://127.0.0.1:1234" >> $GITHUB_ENV
@@ -294,9 +313,6 @@ jobs:
       # `tee` puts the verdict on the run's summary page, so the reason a
       # required check went red is visible without opening the log.
       #
-      # `shell: bash` for pipefail, exactly as on the build steps. Without it
-      # this step reports tee's exit status and the gate NEVER fails — silently,
-      # and only visibly wrong on the first run that should have blocked.
+      # The pipe is why `defaults.run.shell` is set at the top of this file.
       - name: Gate
-        shell: bash
         run: node .github/ci/gate.cjs /tmp/fragments | tee -a "$GITHUB_STEP_SUMMARY"

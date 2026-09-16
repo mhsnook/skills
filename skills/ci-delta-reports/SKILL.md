@@ -186,9 +186,11 @@ the bundle branch of `gate.cjs`.
   the checks whose *absence* must fail. A crashed job writes no sidecar at all,
   which the per-check missing rule cannot see.
 - `workflow.yml` → the base job's "Fetch the measurement from head" step lists
-  the config files. Name the real ones, and include the **tsconfigs**: a PR that
-  tightens a compiler flag is the same failure as a PR that tightens a lint
-  rule. Keep that step above `setup-node`, because `.nvmrc` is in the list.
+  the scripts, the toolchain files and the **formatter** configs. Do not add the
+  tsconfigs or a gated linter's config: fetching those makes the gate fail open
+  on the PR that changes the rule. The comment in the template and
+  [references/architecture.md](references/architecture.md) explain which way
+  round and why. Keep that step above `setup-node`, because `.nvmrc` is in it.
 - If the repo already has a bot comment this workflow replaces, call
   `retireComments(github, context, ['### Old heading'])` in the report job once,
   so open PRs lose the stale comment instead of carrying two. This is
@@ -265,8 +267,12 @@ first run is the actual test.
 - **Say nothing when there is nothing to say.** The build section stays silent
   while both trees build. A bot that reports success on every green PR trains
   people to skim past the one time it does not.
-- **Static checks never depend on the build.** A branch that fails to build is
-  the branch that most needs to be told about its type errors.
+- **Static checks never depend on the build** — with one exception. A branch
+  that fails to build is the branch that most needs to be told about its type
+  errors. The exception is a workspace whose packages resolve each other through
+  built `dist/*.d.ts`: there the build is the generation step, and an unbuilt
+  tree reports a phantom "cannot find module" for every sibling. Reorder, and
+  say why in the workflow.
 - **Measure both trees with the same scripts AND the same tool configs.** The
   base job checks both out from head. Otherwise a PR that changes a rule reads
   as a PR that broke every file the rule touches.

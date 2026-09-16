@@ -234,9 +234,26 @@ none, and each wants a different measurement:
 - **A server or Worker bundle**: walk the output directory, and check whether
   the platform imposes a hard limit. Cloudflare rejects a Worker over 10 MB
   gzipped on the Workers Paid plan, so that number is a budget rather than a
-  trend — report it as a percentage of the limit. `wrangler deploy --dry-run`
-  is the cheap companion check: it bundles exactly as a deploy would and
-  validates the bindings, without deploying.
+  trend — report it as a percentage of the limit.
+
+### A Worker repo has two artifacts and wants two instruments
+
+Do not ask "how do I point `measure()` at a Worker". Ask which artifact each
+check is for. A dashboard SPA takes check 4 unchanged; the Worker takes
+`wrangler deploy --dry-run`, gated `must-pass`.
+
+The dry-run earns first-class status: it bundles exactly as a deploy would, it
+is the only thing that validates `wrangler.toml` and the D1, Durable Object and
+R2 bindings, it runs offline, and it takes seconds. A binding typo passes every
+other check in this report.
+
+**It runs after the build, not beside the static checks.** An `assets` binding
+pointing at `dist/client` means the dry-run needs the built output to exist.
+
+A hermetic end-to-end script (`wrangler dev` plus workerd, no developer-local
+state) fits the head job the same way: after the build, `continue-on-error`, and
+gated `must-pass`. Without `continue-on-error` it kills the job before the
+comment posts.
 - **A framework with a split output** (`dist/client` + `dist/server`, `.next/`):
   measure the two halves on separate axes. They move for different reasons and
   a combined total tells you nothing about either.
@@ -333,6 +350,55 @@ than read.
 
 **Gate advice:** always gating, never report-only. A leaked key is not a trend
 to watch.
+
+## Workspaces and monorepos
+
+A recursive runner changes every check above, and the failures are quiet.
+
+**A recursive runner rewrites every path.** `pnpm -r`, `turbo`, `nx` and
+`lerna` prefix each line with the package directory, while the tool's own path
+stays package-relative:
+
+```
+packages/scenes typecheck: src/types.ts(1233,7): error TS2322: …
+```
+
+That is neither repo-root-relative nor unique — `packages/a/src/types.ts` and
+`packages/b/src/types.ts` both key as `src/types.ts`, so errors in same-named
+files across packages collide. Splice the two halves:
+
+```bash
+sed 's#^\([^[:space:]]\{1,\}\) typecheck: #\1/#'
+```
+
+Both trees produce the same wrong shape, so the delta looks plausible while
+being wrong. Run the command yourself and read the raw output before trusting
+any of it.
+
+**Turn off bail.** `pnpm -r typecheck` stops at the first failing package: one
+repo measured 5 errors across 3 of 15 projects, and 41 across all 15 with
+`--no-bail`. Without it, how much of the repo gets measured depends on which
+package fails first, so the delta swings on unrelated changes. That is worse
+than a wrong count, because it looks like a real movement.
+
+**Pin the reporter.** pnpm picks a different output format on a TTY, and the
+splice above depends on the non-TTY one. `--reporter=append-only`.
+
+**One test report per package.** Each runner process resolves `--outputFile`
+against its own directory, so one absolute path leaves only the package that
+finished last. Collect the reports into a directory and pass the directory to
+`render-tests.cjs`, which merges them.
+
+**`git ls-tree` the config list.** The fetch-from-head step's hardcoded file
+list is a single-package idea. A workspace has one `tsconfig.json` per package,
+and a new package silently drops out of a fixed loop.
+
+**The build may be a prerequisite for the typecheck here.** When packages
+resolve their siblings through built `dist/*.d.ts`, `tsc --noEmit` on an unbuilt
+tree reports phantom "cannot find module" errors for every sibling — one repo
+measured 41 unbuilt against 0 built. In that layout the build *is* the
+generation step from §1, so it runs first, and the general rule below does not
+apply. Say it in the workflow comment, because it contradicts the default.
 
 ## 7. HTTP contract — optional, head only
 

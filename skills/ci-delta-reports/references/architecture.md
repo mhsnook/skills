@@ -79,8 +79,24 @@ repository for content — Tailwind v4 scans for class names — sees head's cop
 bytes, permanently and in one direction. It is real, it is tiny, and chasing it
 costs more than it saves.
 
-The same argument covers the **linter and formatter configs**, and it is the
-half people miss. A PR that enables a lint rule changes what the head tree
+**Which configs, though — and this is where the rule reverses.** The argument
+above is about the measuring instrument. A tool's *config* is only sometimes
+part of the instrument:
+
+- **Formatter configs: fetch them.** The formatter gate is scoped to the files
+  the PR touched, and those are judged by head's config either way. Fetching it
+  only keeps the repo-wide trend honest, so there is no gate to fail open.
+- **tsconfig, and the linter config when lint is gated: do not fetch them.**
+  Here the config change *is* the thing being measured, and fetching it makes
+  the gate **fail open**. A PR that sets `strict: true` and surfaces 40 errors
+  has both trees judged by the new option, so the delta is zero, `no-new`
+  passes, the PR merges, and `tsc` on the default branch starts failing. Left on
+  its own config, base reports 0 against head's 40 and the gate blocks.
+
+Both behaviours are noisy on a config change. One is noisy in the safe
+direction, and a gate that cannot fail is worth less than a gate that cries
+wolf. When lint is `report-only`, the trade-off flips back — there is no gate to
+protect, and judging both trees by the new rule gives the more readable number. A PR that enables a lint rule changes what the head tree
 reports and leaves the base tree judged by the old rule, so every file the rule
 touches reads as newly broken and the PR cannot merge. Check those configs out
 from head too — one `git checkout` per file, because a single call listing all
