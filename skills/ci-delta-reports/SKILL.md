@@ -1,6 +1,6 @@
 ---
 name: ci-delta-reports
-description: Set up CI that reports what CHANGED between the base branch and the PR — new vs resolved type errors, lint issues, formatter drift, bundle size, and test failures — in one PR comment that updates in place. Use when someone wants PR checks that show a delta rather than a pass/fail, wants to adopt linting on a legacy codebase without fixing everything first, wants bundle-size reporting on PRs, asks for "CI like sunlo has", or wants to consolidate several noisy CI comments into one.
+description: Set up CI that reports what CHANGED between the base branch and the PR — new vs resolved type errors, lint issues, formatter drift, bundle size, and test failures — in one PR comment that updates in place. Use when someone wants PR checks that show a delta rather than a pass/fail, wants to adopt linting on a legacy codebase without fixing everything first, wants bundle-size reporting on PRs, or wants to consolidate several noisy CI comments into one.
 license: MIT
 ---
 
