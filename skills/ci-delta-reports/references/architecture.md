@@ -73,6 +73,12 @@ The trade-off is real and worth stating: a PR that breaks the collection script
 breaks the base measurement too. That is the correct failure — it is visible
 immediately, rather than producing a plausible and wrong delta.
 
+One small consequence, so nobody reads it as a bug: a build tool that scans the
+repository for content — Tailwind v4 scans for class names — sees head's copy of
+`.github/ci/` on the base tree too. That can move a CSS measurement by a few
+bytes, permanently and in one direction. It is real, it is tiny, and chasing it
+costs more than it saves.
+
 The same argument covers the **linter and formatter configs**, and it is the
 half people miss. A PR that enables a lint rule changes what the head tree
 reports and leaves the base tree judged by the old rule, so every file the rule

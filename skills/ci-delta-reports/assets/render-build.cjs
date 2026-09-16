@@ -25,6 +25,10 @@ const EXCERPT = 40
 // excerpt is anchored on this rather than on the tail of the log, because most
 // tools print a summary, a stack, and an exit code after the useful part.
 //
+// Anchor on words that appear only in a FAILING build. `[plugin ...]` and
+// `[vite]` are both printed by successful Vite builds — the chunk-size warning
+// carries one — so an anchor on those starts the excerpt above the real error.
+//
 // Check whether your build tool timestamps its lines before you trust this.
 // Astro prints `12:05:39 [ERROR] [vite] ✘ Build failed`, and an anchor that
 // does not allow the clock prefix matches nothing, which silently falls back to
@@ -33,7 +37,7 @@ const EXCERPT = 40
 // `build: tsc -b && vite build`: a type error's first line starts with a file
 // path, so a keyword-only anchor matches nothing.
 const ERROR_HEADING =
-	/^\s*(?:\d{1,2}:\d{2}:\d{2}\s+)?(?:\[(?:ERROR|\w*Error)\]|error\b|ERROR\b|Error:|\[vite\]|✘|×|failed to)|\(\d+,\d+\): error TS/
+	/^\s*(?:\d{1,2}:\d{2}:\d{2}\s+)?(?:\[(?:ERROR|\w*Error)\]|error\b|ERROR\b|Error:|✘|✗|×|failed to)|\(\d+,\d+\): error TS/
 
 const read = (p) => {
 	try {

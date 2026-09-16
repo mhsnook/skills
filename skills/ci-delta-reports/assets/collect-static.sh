@@ -27,6 +27,10 @@ export LC_ALL=C
 # Repeat here whatever the linter and formatter configs already ignore. Each
 # tree is measured with its own config, so a PR that edits one of those configs
 # would otherwise move its own baseline.
+#
+# `.github/ci/` is in the list for a different reason: the base job checks these
+# scripts out from head, so BOTH trees lint head's copy and any issue in them
+# cancels to "no change". That is a number which cannot move, so it is noise.
 EXCLUDE='^(vendor/|third_party/|dist/|\.github/ci/|.*\.generated\.[jt]s$)'
 
 # CONFIGURE: code generation the typechecker needs, if any — `next typegen`,
@@ -40,7 +44,12 @@ EXCLUDE='^(vendor/|third_party/|dist/|\.github/ci/|.*\.generated\.[jt]s$)'
 (
 	# CONFIGURE: your typecheck command. Keep the grep — it drops the summary
 	# lines, which change with the error count and would diff as noise.
-	pnpm check 2>&1 | grep ': error TS' | sort >"$OUT/typecheck.txt"
+	#
+	# `sort -u`, not `sort`. With TypeScript project references, a file in a
+	# shared directory belongs to several projects, so `tsc --build` prints each
+	# error in it once PER PROJECT. Keeping the duplicates doubles every
+	# shared-code delta.
+	pnpm exec tsc --build 2>&1 | grep ': error TS' | sort -u >"$OUT/typecheck.txt"
 	status=${PIPESTATUS[0]}
 
 	# A typechecker that failed but printed nothing the grep recognises would

@@ -214,6 +214,10 @@ for f in .github/ci/*.cjs; do node -e "require('./$f')"; done   # every module p
 node .github/ci/measure-bundle.cjs dist /tmp/m.json   # after a local build
 ```
 
+**Commit before you test-run `collect-static.sh`.** It ends with
+`git checkout -- .`, so running it to check your work reverts any uncommitted
+edit — including the edit you just made to that script.
+
 Then confirm by reading, not by running:
 
 - The report job has `permissions: pull-requests: write` and `if: always()`, so

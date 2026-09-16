@@ -70,6 +70,10 @@ output and `sort -u`. The de-duplication is not cosmetic — multi-project
 TypeScript setups share files, so one error in a shared file prints once per
 project and would otherwise be counted three times.
 
+`tsc --build` has the same problem without the `&&`: a shared directory that
+several projects include produces one printed error per project. Sort unique,
+always.
+
 Some typecheckers do not print `tsc` format at all. `astro check` prints
 `file:line:col - error ts(NNNN): message`, with ANSI colour and code frames. Strip
 the colour, keep only the diagnostic lines, rewrite ` - ` into `: `, and read it
