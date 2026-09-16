@@ -12,6 +12,12 @@ The difference matters most on a codebase with existing debt. A workflow that fa
 
 Both are legitimate. Ask which one the developer wants — do not assume this one.
 
+**That contrast explains the design to you. Keep it out of the pull request.**
+Name what the workflow reports: "Add PR checks: type errors, lint, formatter
+drift, bundle size, tests". A title built on "report this, not that" is a
+slogan, and in a repo that had no CI at all it answers a question nobody asked.
+The same goes for the commit message and the PR body.
+
 ## What you will produce
 
 ```
