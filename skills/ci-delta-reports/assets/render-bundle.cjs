@@ -9,21 +9,25 @@ const fs = require('fs')
 const path = require('path')
 const { formatBytes, deltaLabel, sizeTable } = require('./delta.cjs')
 
-const EMPTY = { js: { raw: 0, gz: 0 }, css: { raw: 0, gz: 0 }, entry: { raw: 0, gz: 0 }, vendors: {} }
-
 const load = (p) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null)
 
+// Two builds of the same commit differ by a few bytes per chunk. Below this,
+// call it unchanged rather than teaching people that the number is noise.
+const NOISE_FLOOR = 512
+
 /**
- * Compare vendor chunks by identity, not size.
+ * Compare eager chunks by identity, not size.
  *
- * This is the axis people miss. A vendor chunk whose content hash is unchanged
- * is still in returning visitors' caches. A PR that adds 2 kB to one has really
- * cost every returning user the WHOLE chunk again, which may be 200 kB. So
+ * This is the axis people miss. A chunk whose content hash is unchanged is
+ * still in returning visitors' caches. A PR that adds 2 kB to one has really
+ * cost every returning visitor the WHOLE chunk again, which may be 200 kB. So
  * report which chunks changed first, and their sizes second.
  */
-function vendorSection(base, head) {
-	const names = [...new Set([...Object.keys(base.vendors), ...Object.keys(head.vendors)])].sort()
-	if (!names.length) return '_No vendor chunks in the eager set._'
+function chunkSection(base, head) {
+	const names = [
+		...new Set([...Object.keys(base.eagerChunks), ...Object.keys(head.eagerChunks)]),
+	].sort()
+	if (!names.length) return '_No chunks in the eager set._'
 
 	const changed = []
 	let cachedRaw = 0
@@ -31,8 +35,8 @@ function vendorSection(base, head) {
 	let cachedCount = 0
 
 	for (const n of names) {
-		const b = base.vendors[n]
-		const h = head.vendors[n]
+		const b = base.eagerChunks[n]
+		const h = head.eagerChunks[n]
 		if (b && h && b.file === h.file) {
 			cachedCount++
 			cachedRaw += h.raw
@@ -44,7 +48,7 @@ function vendorSection(base, head) {
 
 	if (!changed.length) {
 		return (
-			`✅ **Vendor chunks unchanged** — ${cachedCount} chunk(s) totalling ` +
+			`✅ **Every eager chunk keeps its hash** — ${cachedCount} chunk(s) totalling ` +
 			`${formatBytes(cachedRaw)} raw (${formatBytes(cachedGz)} gzipped), still cached for repeat visitors.`
 		)
 	}
@@ -52,15 +56,15 @@ function vendorSection(base, head) {
 	const rows = changed.map(({ n, b, h }) => {
 		if (!b) return `- 🆕 \`${n}\` added — ${formatBytes(h.raw)} raw (${formatBytes(h.gz)} gz)`
 		if (!h) return `- ❌ \`${n}\` removed — was ${formatBytes(b.raw)} raw`
-		// deltaLabel supplies the direction emoji: a vendor chunk that shrank
-		// must not render as growth.
+		// deltaLabel supplies the direction emoji: a chunk that shrank must not
+		// render as growth.
 		return `- \`${n}\` — ${formatBytes(b.raw)} → ${formatBytes(h.raw)} raw, ${deltaLabel(h.raw, b.raw)}`
 	})
 	const stable =
 		cachedCount ?
-			`\n\n${cachedCount} other vendor chunk(s) unchanged — ${formatBytes(cachedRaw)} raw (${formatBytes(cachedGz)} gz), still cached.`
+			`\n\n${cachedCount} other chunk(s) keep their hash — ${formatBytes(cachedRaw)} raw (${formatBytes(cachedGz)} gz), still cached.`
 		:	''
-	return `**Vendor chunks changed:**\n${rows.join('\n')}${stable}`
+	return `**Chunks that changed — repeat visitors re-download these in full:**\n${rows.join('\n')}${stable}`
 }
 
 module.exports = function render({ head, base, out }) {
@@ -70,11 +74,18 @@ module.exports = function render({ head, base, out }) {
 
 	// A missing measurement means a build failed. Say so rather than rendering
 	// a delta against zeros, which would read as "the whole bundle is new".
-	if (!h || !b) {
-		const which = !h && !b ? 'Both builds' : !h ? 'The PR build' : 'The base build'
+	//
+	// An EMPTY measurement is the same failure wearing a disguise: a build that
+	// exits zero and writes nothing would otherwise report a triumphant −100%.
+	const empty = (m) => !m || !m.fileCount
+	if (empty(h) || empty(b)) {
+		const which =
+			empty(h) && empty(b) ? 'Neither build produced a measurable bundle'
+			: empty(h) ? 'The PR build produced no measurable bundle'
+			: 'The base build produced no measurable bundle'
 		fs.writeFileSync(
 			path.join(out, '40-bundle.md'),
-			`#### Bundle size\n\n⚠️ ${which} produced no measurement, so there is nothing to compare. Check the job log.`
+			`#### Bundle size\n\n⚠️ ${which}, so there is nothing to compare. Check the job log.`
 		)
 		fs.writeFileSync(
 			path.join(out, '40-bundle.json'),
@@ -98,9 +109,16 @@ module.exports = function render({ head, base, out }) {
 		'',
 		sizeTable(h.css.raw, h.css.gz, b.css.raw, b.css.gz),
 		'',
-		vendorSection(b, h),
+		`**Lazy chunks** — ${h.lazy.count} file(s), ${formatBytes(h.lazy.gz)} gzipped · ` +
+			`${deltaLabel(h.lazy.gz, b.lazy.gz)}. Fetched on demand, so this is context rather than first-paint cost.`,
+		'',
+		chunkSection(b, h),
 	].join('\n')
 
+	// Below the noise floor, report the eager delta as zero. Two builds of the
+	// same commit differ by a few bytes, and a budget that trips on those
+	// teaches people the number means nothing.
+	const gzDelta = h.js.gz - b.js.gz
 	fs.writeFileSync(path.join(out, '40-bundle.md'), markdown)
 	fs.writeFileSync(
 		path.join(out, '40-bundle.json'),
@@ -108,8 +126,10 @@ module.exports = function render({ head, base, out }) {
 			{
 				check: 'bundle',
 				eagerRawDelta: h.js.raw - b.js.raw,
-				eagerGzDelta: h.js.gz - b.js.gz,
+				eagerGzDelta: Math.abs(gzDelta) < NOISE_FLOOR ? 0 : gzDelta,
+				eagerGzBase: b.js.gz,
 				entryGzDelta: h.entry.gz - b.entry.gz,
+				lazyGzDelta: h.lazy.gz - b.lazy.gz,
 			},
 			null,
 			2
@@ -117,4 +137,5 @@ module.exports = function render({ head, base, out }) {
 	)
 }
 
-module.exports.vendorSection = vendorSection
+module.exports.chunkSection = chunkSection
+module.exports.NOISE_FLOOR = NOISE_FLOOR

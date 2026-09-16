@@ -16,13 +16,41 @@ const path = require('path')
 //                      pre-existing; issues in untouched files never fail
 //   { maxNew: N }      allows up to N new issues
 //   { maxTotal: N }    fails on the absolute count, ignoring the delta
-//   { maxGzDelta: N }  bundle only — fails when gzipped bytes grow by over N
+//   { maxGzDelta: B }  bundle only — fails when gzipped size grows by over B,
+//                      written as bytes, '20KiB', or '5%' of the base size
 const POLICY = {
+	build: 'no-new',
 	typecheck: 'no-new',
 	lint: 'no-new',
 	format: 'touched-clean',
 	tests: 'no-new',
+	scan: 'no-new',
 	bundle: { maxGzDelta: 10 * 1024 },
+}
+
+// CONFIGURE: checks whose sidecar must exist. `verdict` catches a check that
+// reported "I could not measure this"; this list catches one that reported
+// nothing at all, because the job died before writing a fragment. Without it,
+// a crashed head job passes the gate.
+const REQUIRED = ['typecheck', 'lint', 'tests']
+
+/**
+ * Read a budget written as bytes, `20KiB`, or `5%` of the base size.
+ *
+ * Percentages are convenient on a large bundle and misleading on a small one,
+ * where 5% is a few hundred bytes of ordinary build noise. Prefer bytes unless
+ * the bundle is big.
+ */
+function budget(limit, baseBytes) {
+	if (typeof limit === 'number') return limit
+	if (typeof limit !== 'string') return Infinity
+	const pct = limit.match(/^([\d.]+)\s*%$/)
+	if (pct) return (Number(pct[1]) / 100) * (baseBytes ?? 0)
+	const size = limit.match(/^([\d.]+)\s*(B|KB|KiB|MB|MiB)?$/i)
+	if (!size) return Infinity
+	const unit = (size[2] ?? 'B').toLowerCase()
+	const scale = { b: 1, kb: 1000, kib: 1024, mb: 1e6, mib: 1024 * 1024 }[unit] ?? 1
+	return Number(size[1]) * scale
 }
 
 function verdict(check, data) {
@@ -45,12 +73,25 @@ function verdict(check, data) {
 			:	null
 	}
 
+	// Whose fault the failure is belongs in the comment, not here: a broken base
+	// branch still means this PR cannot be verified, so it still blocks.
+	if (check === 'build') {
+		if (data.headOk) return null
+		return data.baseOk ?
+				'this PR breaks the build'
+			:	'neither this PR nor the base branch builds — repair the base branch first'
+	}
+
 	if (check === 'tests') {
 		return data.failed > 0 ? `${data.failed} failing test(s)` : null
 	}
 
+	if (check === 'scan') {
+		return data.found > 0 ? `${data.found} forbidden pattern(s) in the build output` : null
+	}
+
 	if (check === 'bundle') {
-		const limit = rule.maxGzDelta ?? Infinity
+		const limit = budget(rule.maxGzDelta ?? Infinity, data.eagerGzBase)
 		const grew = data.eagerGzDelta ?? 0
 		return grew > limit ?
 				`eager bundle grew ${(grew / 1024).toFixed(2)} kB gzipped, over the ${(limit / 1024).toFixed(0)} kB budget`
@@ -85,13 +126,19 @@ function main(dir) {
 		.sort()
 
 	const failures = []
+	const seen = new Set()
 	for (const f of sidecars) {
 		const data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
+		seen.add(data.check)
 		const reason = verdict(data.check, data)
 		if (reason) failures.push(`${data.check}: ${reason}`)
 		else if ((POLICY[data.check] ?? 'report-only') === 'report-only')
 			console.log(`➖ ${data.check} (report only, not gated)`)
 		else console.log(`✅ ${data.check}`)
+	}
+
+	for (const check of REQUIRED) {
+		if (!seen.has(check)) failures.push(`${check}: no report was produced at all`)
 	}
 
 	if (!failures.length) {
@@ -106,4 +153,4 @@ function main(dir) {
 
 if (require.main === module) main(process.argv[2] ?? '/tmp/fragments')
 
-module.exports = { POLICY, verdict }
+module.exports = { POLICY, REQUIRED, budget, verdict }

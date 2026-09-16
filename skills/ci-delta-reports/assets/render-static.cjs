@@ -25,6 +25,26 @@ module.exports = function render({ head, base, out }) {
 		fs.writeFileSync(path.join(out, `${name}.json`), JSON.stringify(gate, null, 2))
 	}
 
+	// A whole tree's output directory is absent when that job died before the
+	// static checks ran. Diffing nothing against nothing renders "no change",
+	// which is the most dangerous thing this report can say, so name the tree
+	// that is missing and let the gate fail all three checks.
+	const missingTree = !fs.existsSync(head) ? 'The PR' : !fs.existsSync(base) ? 'The base branch' : null
+	if (missingTree) {
+		for (const [name, check, title] of [
+			['10-typecheck', 'typecheck', 'Type errors'],
+			['20-lint', 'lint', 'Lint'],
+			['30-format', 'format', 'Formatter drift'],
+		]) {
+			write(
+				name,
+				`#### ${title}\n\n⚠️ ${missingTree} job produced no measurement, so there is nothing to compare. Check the job log.`,
+				{ check, missing: true }
+			)
+		}
+		return
+	}
+
 	// ── Type errors ──────────────────────────────────────────────────────
 	const tc = differential(
 		readLines(`${base}/typecheck.txt`),

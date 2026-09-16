@@ -1,8 +1,36 @@
-# The six checks
+# The checks
 
 Per-check detail: what to run, how to normalise the output, and what the delta
 means. The diff engine only needs one sorted line per issue, so any tool that
 can be coaxed into `file:line:col: message` drops straight in.
+
+## 0. Build outcome
+
+**Normalised form:** one word per tree — the step outcome — plus the build log.
+
+Both build steps run under `continue-on-error: true` and `tee` their output.
+Each job writes `build.outcome` into its artifact, and `render-build.cjs` turns
+the pair into one of four verdicts:
+
+| head | base | What the comment says |
+|---|---|---|
+| builds | builds | nothing at all |
+| builds | broken | this PR fixes the build |
+| broken | builds | this PR breaks the build, with the log excerpt |
+| broken | broken | the base branch is already broken — repair it first |
+
+That last row is the reason to read both trees. Telling someone they broke the
+build when they inherited it wastes their afternoon.
+
+Quote the log from the **first error heading**, not from the tail. Most build
+tools print a summary, a stack trace, and an exit code after the useful part,
+so the last 40 lines are usually the least informative 40 lines.
+
+`skipped` and `cancelled` are not `success`. A tree that was never built has not
+been shown to build.
+
+**Gate advice:** always gating. A PR whose tree does not build cannot be
+verified by any other check in the report.
 
 ## 1. Type errors
 
@@ -18,6 +46,22 @@ stripped.
 
 Strip the summary line in every case. `Found 12 errors in 5 files` changes
 whenever the count does, so it diffs as a permanent phantom issue.
+
+**Generate before you typecheck.** If the typechecker needs generated
+declarations — `next typegen`, `wrangler types`, `prisma generate` — run that
+first, in seconds, rather than making the build a prerequisite. The typecheck
+has to work on a tree that does not build.
+
+**A typechecker that fails silently reads as clean.** `grep ': error TS'` over a
+compound command like `wrangler types --check && tsc --build` produces an empty
+file when the *first* half fails in its own format, and an empty file means zero
+errors. Capture the exit status, and when it is non-zero with no recognised
+error lines, write one synthetic issue line instead. The template does this.
+
+Some typecheckers do not print `tsc` format at all. `astro check` prints
+`file:line:col - error ts(NNNN): message`, with ANSI colour and code frames. Strip
+the colour, keep only the diagnostic lines, rewrite ` - ` into `: `, and read it
+with `parsers.unix` rather than `parsers.tsc`.
 
 **Gate advice:** `no-new` is right for almost everyone. Type errors are
 unambiguous and cheap to fix at the moment you introduce one.
@@ -41,6 +85,11 @@ rule name in the message so the fix is still obvious.
 
 Filter vendored and generated paths *before* sorting. They produce issues that
 nobody reviewing the PR can act on, and they can outnumber the real ones.
+
+Repeat that filter in `collect-static.sh` even when the linter config already
+ignores the same paths. Each tree is measured with its own config until the base
+job checks the configs out from head, and duplicating the list means a PR that
+edits an ignore rule cannot move its own baseline.
 
 **Gate advice:** `no-new` on a maintained codebase. On a legacy one, start
 `report-only` for a few weeks so the team sees the number, then tighten. Going
@@ -124,13 +173,44 @@ whose hash is unchanged is still in returning visitors' caches. A PR that adds
 2 kB to a vendor chunk has really cost every returning user the *whole* chunk
 again, which may be 200 kB. Report identity, then size.
 
+Lazy chunks still belong in the report, on their own line. A route split out of
+the eager set is a win that a single total would hide.
+
+### When there is no index.html
+
+`measure()` reads `index.html` to find the eager set. Three common shapes have
+none, and each wants a different measurement:
+
+- **A library** (`dist/` from `tsc` or a bundler): walk the output directory and
+  report the total. The useful gate is usually not size at all — it is
+  `pnpm publish --dry-run`, which catches a package that ships the wrong files.
+- **A server or Worker bundle**: walk the output directory, and check whether
+  the platform imposes a hard limit. Cloudflare rejects a Worker over 10 MB
+  gzipped on the Workers Paid plan, so that number is a budget rather than a
+  trend — report it as a percentage of the limit. `wrangler deploy --dry-run`
+  is the cheap companion check: it bundles exactly as a deploy would and
+  validates the bindings, without deploying.
+- **A framework with a split output** (`dist/client` + `dist/server`, `.next/`):
+  measure the two halves on separate axes. They move for different reasons and
+  a combined total tells you nothing about either.
+
 **Watch for:** a bundler that reads environment variables at build time may
 tree-shake large dependencies away when those variables are missing, producing
 a build that looks dramatically smaller and means nothing. Set dummy-but-truthy
 values in CI and sanity-check that a known dependency is present in the output.
 
+**Watch for:** a build that exits zero having written nothing. Measured against
+a real base, that reports a triumphant −100%. Treat an empty measurement the
+same as a missing one.
+
+**Noise floor.** Two builds of the same commit differ by a few bytes per chunk.
+The template reports an eager delta under 512 bytes as zero, so a budget never
+trips on build noise.
+
 **Gate advice:** a gzipped byte budget on the eager total, generous enough that
-only real regressions trip it. Percentage budgets misbehave on small bundles.
+only real regressions trip it. `maxGzDelta` also accepts `'20KiB'` and `'5%'`.
+Percentages misbehave on small bundles — 5% of a 40 kB bundle is 2 kB, which is
+one dependency bump — so prefer bytes unless the bundle is large.
 
 ## 5. Tests
 
@@ -171,8 +251,43 @@ ask the developer what the forbidden strings are. Keep the list in one file
 with a comment per entry saying why it must not ship — a bare regex list rots
 within months.
 
+Prefer a literal string over a clever pattern. String literals survive
+minification; identifiers do not, so `__TEST_ONLY__` in the source is still
+`__TEST_ONLY__` in the bundle while `isTestMode` became `a`.
+
 Single-branch, and it builds. If bundle size is also in play, run both scans
 over the same `dist/` rather than building twice.
 
+The scan writes its own fragment, so a hit appears in the comment beside every
+other check. A check that only turns a job red is a check people re-run rather
+than read.
+
 **Gate advice:** always gating, never report-only. A leaked key is not a trend
 to watch.
+
+## 7. HTTP contract — optional, head only
+
+Not in the templates, because it needs a running server. Worth describing,
+because it catches what no static check can: a redirect that lost its
+`Location`, a page that started returning 404, a `cache-control` header that
+quietly went `no-store`.
+
+Start the built server, wait for it to answer, then run a request-only test
+suite against it — no browser, so no browser download. The mechanics that
+matter:
+
+- **Wait for readiness, and fail when it never comes.** A poll loop that falls
+  through silently turns "the server never started" into sixty connection
+  errors in the test output.
+- **`maxRedirects: 0`.** Otherwise a 301 → 200 chain reads as 200 and the
+  redirect assertions test nothing.
+- **Assert only headers that are stable across two runs of the same build.**
+  `date`, `etag`, `set-cookie` and the CDN's own request IDs are not.
+- **List the routes literally.** A glob over the app's own routes passes when a
+  route disappears, which is the failure the suite exists to catch.
+- **Discover data from the app's own sitemap** rather than from fixtures, and
+  skip rather than fail when the dataset is empty. That is what lets one suite
+  run against an empty CI database and against production.
+
+Run it under `continue-on-error` like every other check, or a contract failure
+kills the job before the comment is posted.

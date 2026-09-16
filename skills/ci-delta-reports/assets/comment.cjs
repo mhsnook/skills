@@ -11,13 +11,22 @@ const path = require('path')
 const MAX_BODY = 65000
 
 /**
+ * The hidden line that identifies this workflow's comment.
+ *
+ * Hidden rather than the visible heading: matching on displayed text means
+ * rewording the heading orphans every comment already on an open PR, and the
+ * next run posts a second one beside it.
+ */
+const marker = (id) => `<!-- ci-delta:${id} -->`
+
+/**
  * Read every `<order>-<name>.md` fragment in a directory and join them.
  *
  * Each check job uploads its fragment as an artifact; the reporting job
  * downloads them all into one directory. The numeric filename prefix fixes the
  * section order, so jobs finishing out of order still render consistently.
  */
-function assemble(dir, { marker, header = '' }) {
+function assemble(dir, { id, title, header = '' }) {
 	const fragments =
 		fs.existsSync(dir) ?
 			fs
@@ -29,10 +38,10 @@ function assemble(dir, { marker, header = '' }) {
 		:	[]
 
 	if (!fragments.length) {
-		return [marker, '', '_No check produced a report. Check the job logs._'].join('\n')
+		return [marker(id), title, '', '_No check produced a report. Check the job logs._'].join('\n')
 	}
 
-	const parts = [marker]
+	const parts = [marker(id), title]
 	if (header) parts.push('', header)
 	parts.push('', fragments.join('\n\n---\n\n'))
 	const body = parts.join('\n')
@@ -42,10 +51,10 @@ function assemble(dir, { marker, header = '' }) {
 /**
  * Create the comment, or edit the one this workflow wrote last time.
  *
- * Matching on a marker prefix is what keeps a busy PR to a single comment that
- * updates in place, instead of one comment per push.
+ * Matching on the hidden marker is what keeps a busy PR to a single comment
+ * that updates in place, instead of one comment per push.
  */
-async function upsertComment(github, context, marker, body) {
+async function upsertComment(github, context, id, body) {
 	const issue_number = context.issue.number
 	if (!issue_number) return { skipped: 'not a pull request' }
 
@@ -58,7 +67,7 @@ async function upsertComment(github, context, marker, body) {
 	})
 
 	const existing = comments.find(
-		(c) => c.body.startsWith(marker) && c.user?.type === 'Bot'
+		(c) => c.body.includes(marker(id)) && c.user?.type === 'Bot'
 	)
 
 	if (existing) {
@@ -72,8 +81,9 @@ async function upsertComment(github, context, marker, body) {
 /**
  * Delete comments left by markers this workflow no longer writes.
  *
- * Use it when you merge two checks into one section, so the stale comment from
- * the old layout does not linger on open PRs.
+ * Use it when you merge two checks into one section, or when you adopt this
+ * workflow in a repo whose old CI posted its own comments — pass the leading
+ * text of each retired comment, so the stale ones do not linger on open PRs.
  */
 async function retireComments(github, context, markers) {
 	const issue_number = context.issue.number
@@ -100,4 +110,4 @@ async function retireComments(github, context, markers) {
 	return { deleted }
 }
 
-module.exports = { MAX_BODY, assemble, upsertComment, retireComments }
+module.exports = { MAX_BODY, marker, assemble, upsertComment, retireComments }

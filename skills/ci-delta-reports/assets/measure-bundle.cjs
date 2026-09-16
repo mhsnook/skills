@@ -12,19 +12,38 @@ const fs = require('fs')
 const path = require('path')
 const zlib = require('zlib')
 
-// CONFIGURE: how a chunk is recognised as third-party, and how to strip the
-// content hash so the same logical chunk is comparable across two builds.
-const VENDOR_PATTERN = /-vendor-|[/\\]vendor[-.]/
-const STRIP_HASH = /-[A-Za-z0-9_-]{8}(\.[a-z]+)$/
+// CONFIGURE: how to strip the content hash, so the same logical chunk is
+// comparable across two builds. Rolldown and Vite emit 8 characters after a
+// dash; Webpack emits up to 20 hex digits; Astro puts the hash before the
+// extension after a dot.
+const STRIP_HASH = /[-.][A-Za-z0-9_-]{8,20}(\.[a-z]+)$/
+
+const sizeOf = (file) => {
+	const buf = fs.readFileSync(file)
+	return { raw: buf.length, gz: zlib.gzipSync(buf).length }
+}
+
+const add = (total, one) => ({ raw: total.raw + one.raw, gz: total.gz + one.gz })
+
+/** Every file under a directory, recursively. Empty when the directory is absent. */
+function walk(dir) {
+	if (!fs.existsSync(dir)) return []
+	const out = []
+	for (const entry of fs.readdirSync(dir, { withFileTypes: true, recursive: true })) {
+		if (entry.isFile()) out.push(path.join(entry.parentPath ?? entry.path, entry.name))
+	}
+	return out
+}
 
 /**
  * Measure the eager-load set: everything index.html references directly, which
- * is what a first paint must download. Lazy chunks are excluded on purpose —
- * they are the part of the bundle a user may never fetch, and folding them
- * into one total hides the number that matters.
+ * is what a first paint must download. Lazy chunks are reported separately, not
+ * folded in — they are the part of the bundle a user may never fetch, and one
+ * combined total hides the number that matters.
  *
- * CONFIGURE: for a non-HTML entry point (a library, a server bundle), replace
- * the file-collection step with a walk over the output directory.
+ * CONFIGURE: for a non-HTML entry point (a library, a server bundle, a Worker),
+ * replace the file-collection step with a walk over the output directory. See
+ * references/checks.md §4 for the two variants.
  */
 function measure(dist) {
 	const indexPath = path.join(dist, 'index.html')
@@ -32,45 +51,54 @@ function measure(dist) {
 		throw new Error(`no index.html in ${dist} — adapt measure() to this project's output`)
 	}
 	const html = fs.readFileSync(indexPath, 'utf8')
-	const files = [
+	const eager = [
 		...new Set([...html.matchAll(/assets\/[A-Za-z0-9._-]+\.(?:js|css)/g)].map((m) => m[0])),
 	]
+	const isEager = new Set(eager.map((rel) => path.join(dist, rel)))
 
 	const result = {
 		js: { raw: 0, gz: 0 },
 		css: { raw: 0, gz: 0 },
 		entry: { raw: 0, gz: 0 },
-		vendors: {},
+		lazy: { raw: 0, gz: 0, count: 0 },
+		// Every eager chunk, keyed by its hash-stripped name. Identity matters as
+		// much as size: a chunk whose hash is unchanged is still in returning
+		// visitors' caches.
+		eagerChunks: {},
+		fileCount: 0,
 	}
 
-	for (const rel of files) {
-		const buf = fs.readFileSync(path.join(dist, rel))
-		const raw = buf.length
-		const gz = zlib.gzipSync(buf).length
-		const name = rel.slice(rel.lastIndexOf('/') + 1)
+	for (const rel of eager) {
+		const file = path.join(dist, rel)
+		const one = sizeOf(file)
+		const name = path.basename(rel)
+		result.fileCount++
 
 		if (name.endsWith('.css')) {
 			// Render-blocking on first paint, so part of the eager cost — but on
 			// its own axis, because it moves when design changes, not logic.
-			result.css.raw += raw
-			result.css.gz += gz
-			continue
+			result.css = add(result.css, one)
+		} else {
+			result.js = add(result.js, one)
+			if (/^index[-.]/.test(name)) result.entry = one
 		}
-		result.js.raw += raw
-		result.js.gz += gz
-
-		if (VENDOR_PATTERN.test(name)) {
-			// Keep the hashed filename: an unchanged hash is the signal that
-			// returning visitors still have the chunk cached.
-			result.vendors[name.replace(STRIP_HASH, '$1')] = { file: name, raw, gz }
-		} else if (/^index[-.]/.test(name)) {
-			result.entry = { raw, gz }
-		}
+		result.eagerChunks[name.replace(STRIP_HASH, '$1')] = { file: name, ...one }
 	}
+
+	// Lazy chunks: everything else the build emitted that a browser could fetch.
+	for (const file of walk(dist)) {
+		if (isEager.has(file)) continue
+		if (!/\.(js|css)$/.test(file)) continue
+		if (file.endsWith('.map')) continue
+		result.lazy = add(result.lazy, sizeOf(file))
+		result.lazy.count++
+		result.fileCount++
+	}
+
 	return result
 }
 
-module.exports = { measure }
+module.exports = { measure, walk, sizeOf, STRIP_HASH }
 
 if (require.main === module) {
 	const [dist, out] = process.argv.slice(2)
@@ -83,7 +111,8 @@ if (require.main === module) {
 	fs.writeFileSync(out, JSON.stringify(result, null, 2))
 	console.log(
 		`${dist}: ${(result.js.gz / 1024).toFixed(2)} kB JS + ` +
-			`${(result.css.gz / 1024).toFixed(2)} kB CSS, gzipped ` +
-			`(${Object.keys(result.vendors).length} vendor chunk(s))`
+			`${(result.css.gz / 1024).toFixed(2)} kB CSS eager, gzipped ` +
+			`(${Object.keys(result.eagerChunks).length} eager chunk(s), ` +
+			`${result.lazy.count} lazy)`
 	)
 }

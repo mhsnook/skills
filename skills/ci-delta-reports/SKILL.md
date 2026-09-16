@@ -21,6 +21,7 @@ Both are legitimate. Ask which one the developer wants — do not assume this on
 .github/ci/scan-build.sh          greps dist/ for strings that must not ship
 .github/ci/delta.cjs              diff engine — set difference plus shift-pairing
 .github/ci/render-*.cjs           turn measurements into markdown fragments
+.github/ci/render-build.cjs       says whether this PR broke the build, or inherited it
 .github/ci/comment.cjs            fragment assembly and comment upsert
 .github/ci/gate.cjs               the single place pass/fail policy lives
 ```
@@ -40,10 +41,28 @@ adapt the templates — several choices look arbitrary and are not.
 Never ask a question the repository already answers. Determine:
 
 - Package manager, from the lockfile: `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lockb`
+- The package manager's **version source**. For pnpm that is the `packageManager`
+  field, and `pnpm/action-setup` reads it. Never also pin `version:` on the
+  action — a mismatch between the two is the most common way this workflow
+  breaks. Recommend the `pnpm@10.33.0+sha512...` form, which pins the integrity
+  hash as well.
+- The **Node version source**: a `.nvmrc` if there is one, so `node-version-file`
+  keeps it in one place. If there is none, offer to add one rather than
+  hardcoding the version in the workflow.
 - Available scripts: read `package.json` `scripts`, or the equivalent for a non-JS project
-- Which of typecheck, lint, format, build, and test actually exist as commands
+- Which of typecheck, lint, format, build, and test actually exist as commands.
+  A repo with no formatter and no linter cannot take checks 2 and 3 — adopting
+  one is a separate decision, not part of this setup.
+- Whether the typechecker needs generated files first (`next typegen`,
+  `wrangler types`, `prisma generate`), and whether it is a compound command
+  whose first half can fail in a different output format
 - Whether `.github/workflows/` already has something, so you extend rather than replace
+- Whether any existing workflow already comments on PRs. Those comments need
+  retiring — see `retireComments` in step 3 — or the PR grows a second bot voice.
 - The default branch name, and whether PRs target it
+- Repo-specific jobs that must survive: a database service, a Playwright
+  container, a release or publish workflow, a deploy dry-run. This workflow
+  replaces the *reporting*, never those.
 
 Report what you found before you ask anything. "You're on pnpm with `check`,
 `lint`, `format`, `build`, and `test:unit` scripts, and no workflows yet" makes
@@ -57,6 +76,7 @@ Each check then adds only its own run time, listed below as *marginal* cost.
 
 | # | Check | What the delta tells you | Trees | Marginal cost |
 |---|-------|--------------------------|-------|---------------|
+| 0 | **Build outcome** | Whether this PR broke the build, fixed it, or inherited a broken base | both | free — it comes with any build |
 | 1 | **Type errors** | New / resolved, with line shifts discounted | both | one typecheck per tree |
 | 2 | **Lint** | New / resolved, several linters merged into one list | both | runs beside the typecheck, so ≈ free |
 | 3 | **Formatter drift** | Which touched files are still unformatted, plus the repo-wide total as a trend | both | one format pass per tree, ~seconds |
@@ -66,6 +86,9 @@ Each check then adds only its own run time, listed below as *marginal* cost.
 
 Say these out loud, because they change what people pick:
 
+- **Check 0 is not optional and costs nothing.** Any repo that builds gets the
+  build verdict, because both build steps run under `continue-on-error`
+  anyway. It stays quiet when both trees build.
 - **Checks 1–3 are close to a package deal.** They run in the same script off
   the same install. Adding lint to a repo that already typechecks is about a minute.
 - **Check 4 is the one that costs.** It forces a build on both trees. If they
@@ -120,12 +143,27 @@ bug.
   if two formatters cover different file types, run both. Keep the shape:
   read-only checks concurrent, formatter last.
 - `measure-bundle.cjs` → its `measure()` assumes an `index.html` entry point.
-  For a library or server bundle, walk the output directory instead.
+  For a library, a server bundle, or a Cloudflare Worker, walk the output
+  directory instead — [references/checks.md §4](references/checks.md) has both
+  variants, including the one where the deploy platform imposes a hard size
+  limit.
+- `render-build.cjs` → set `ERROR_HEADING` to the first line of an error in your
+  build tool's output, so the excerpt starts at the error rather than at the
+  tail of the log.
 - `render-tests.cjs` → its `parse()` reads the Vitest and Jest JSON shape.
   Rewrite it for another runner and leave the rest.
 - `scan-build.sh` → replace the example `FORBIDDEN` entries. Ask what must never
   ship; do not guess. Keep the reason on each line.
-- `gate.cjs` → set `POLICY` from the answers to step 2.
+- `gate.cjs` → set `POLICY` from the answers to step 2, and set `REQUIRED` to
+  the checks whose *absence* must fail. A crashed job writes no sidecar at all,
+  which the per-check missing rule cannot see.
+- `workflow.yml` → the base job's "Fetch tool configs from head" step lists the
+  linter and formatter config files. Name the real ones. If a PR changes a lint
+  rule and only the head tree uses the new rule, every file that rule touches
+  reads as newly broken.
+- If the repo already has a bot comment this workflow replaces, call
+  `retireComments(github, context, ['### Old heading'])` in the report job once,
+  so open PRs lose the stale comment instead of carrying two.
 
 ## Step 4 — verify before you hand it over
 
@@ -135,7 +173,7 @@ Do not claim this works until you have checked:
 node .github/ci/delta.cjs --selftest              # the shift-pairing logic
 bash -n .github/ci/collect-static.sh              # shell syntax
 bash -n .github/ci/scan-build.sh
-node -e "require('./.github/ci/gate.cjs')"        # the policy object parses
+for f in .github/ci/*.cjs; do node -e "require('./$f')"; done   # every module parses
 node .github/ci/measure-bundle.cjs dist /tmp/m.json   # after a local build
 ```
 
@@ -149,8 +187,17 @@ Then confirm by reading, not by running:
   in it have the same shape as the ones in `format.txt` — both repo-root-relative,
   no `./`. A mismatch makes the intersection empty and the gate passes forever.
   Check one path from each list against the other by eye.
+- The base job checks out the **linter and formatter configs** from head too,
+  and the file names in that loop are the repo's real ones.
+- Both build steps carry `id:`, `continue-on-error: true` and `tee`, and each
+  job records `build.outcome`. Without all three, check 0 reports nothing.
+- The workflow triggers on `pull_request` only. A `push` trigger on this
+  workflow has no base tree to compare against, and on a PR branch it doubles
+  every run.
 - Every step the workflow references exists as a file, and every file the
   workflow does not reference has been deleted.
+- If any job runs inside a `container:`, it runs `git config --global --add
+  safe.directory "$GITHUB_WORKSPACE"` first. Every script here uses git.
 - No `CONFIGURE` markers survive.
 
 Say plainly that CI cannot be fully verified without a real PR, and that the
@@ -171,4 +218,17 @@ first run is the actual test.
 - **A file you touched ships formatted; a file you did not is not your problem.**
   The formatter gate is scoped to the PR's own footprint, not to the delta.
 - **A missing report is a failure, not a pass.** If a runner crashes before
-  writing output, say so in the comment and fail the gate.
+  writing output, say so in the comment and fail the gate. That covers three
+  distinct absences: a check that could not measure, a tree whose whole job
+  died, and a check that wrote no sidecar at all.
+- **Say nothing when there is nothing to say.** The build section stays silent
+  while both trees build. A bot that reports success on every green PR trains
+  people to skim past the one time it does not.
+- **Static checks never depend on the build.** A branch that fails to build is
+  the branch that most needs to be told about its type errors.
+- **Measure both trees with the same scripts AND the same tool configs.** The
+  base job checks both out from head. Otherwise a PR that changes a rule reads
+  as a PR that broke every file the rule touches.
+- **Match on a hidden marker, not on the heading.** Reword a visible heading and
+  every comment already on an open PR is orphaned, so the next run posts a
+  second one beside it.

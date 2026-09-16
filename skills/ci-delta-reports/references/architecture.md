@@ -73,6 +73,14 @@ The trade-off is real and worth stating: a PR that breaks the collection script
 breaks the base measurement too. That is the correct failure — it is visible
 immediately, rather than producing a plausible and wrong delta.
 
+The same argument covers the **linter and formatter configs**, and it is the
+half people miss. A PR that enables a lint rule changes what the head tree
+reports and leaves the base tree judged by the old rule, so every file the rule
+touches reads as newly broken and the PR cannot merge. Check those configs out
+from head too — one `git checkout` per file, because a single call listing all
+of them fails as a whole when any one path is absent, which would silently leave
+the base tree on its own configs.
+
 ## Why line-shift pairing exists
 
 Insert one import at the top of a file and every issue below it moves down a
@@ -144,14 +152,48 @@ decides. Two consequences worth keeping:
 A missing sidecar is a failure, not a pass. A runner that crashed before writing
 output must not read as a clean run.
 
+## The alternative layout: one job, base as a worktree
+
+Two jobs in parallel is the default because wall clock is what people feel. One
+job with the base branch as a `git worktree` is a real alternative, and it wins
+on four counts:
+
+- **One install, usually.** When the PR does not touch the lockfile, the base
+  tree can borrow the head tree's `node_modules`:
+
+  ```bash
+  git worktree add --detach /tmp/base-branch origin/"$BASE_REF"
+  if cmp -s pnpm-lock.yaml /tmp/base-branch/pnpm-lock.yaml; then
+    ln -s "$GITHUB_WORKSPACE/node_modules" /tmp/base-branch/node_modules
+  else
+    (cd /tmp/base-branch && pnpm install --frozen-lockfile --silent)
+  fi
+  ```
+
+- **No artifact round-trip**, so no upload, download, or retention window.
+- **No toolchain skew**: both measurements provably came off one machine.
+- **No path-shape join for the formatter gate.** In one tree you can ask the
+  formatter directly which of the PR's own changed files it would rewrite, which
+  removes the `touched.txt` intersection and all three of its silent failures.
+
+What it costs: the two builds run in series, so wall clock is the sum rather
+than the maximum. On a slow build that is the whole argument.
+
+Two rules carry over unchanged. Move each build's output aside before the next
+build overwrites it, and remove the worktree with `if: always()`. One rule is
+easy to lose: the base worktree runs the **base branch's** configs, so check the
+tool configs out from head inside the worktree exactly as the base job does.
+
 ## Known limits
 
 - **Toolchain skew.** Head and base build on separate runners, so in principle
   they could get different runner images mid-rollout. `setup-node` pins the
   language version and the lockfile pins dependencies, so the exposure is small.
-  If a project is sensitive to it, merge the two jobs into one and add the base
-  branch as a `git worktree` — you trade the parallelism for a guarantee that
-  both measurements came off one machine.
+  If a project is sensitive to it, use the one-job worktree layout above.
+- **Container jobs.** Every script here shells out to git, and git refuses to
+  operate on a directory owned by another user. A job with `container:` must run
+  `git config --global --add safe.directory "$GITHUB_WORKSPACE"` before the
+  first step that touches the repository.
 - **Fork PRs.** `pull_request` grants a read-only token to forks, so the comment
   step cannot write. Either switch to `pull_request_target` and accept its
   security implications — it runs the base branch's workflow with a write token,
