@@ -133,6 +133,10 @@ folding it in.
 
 **Normalised form:** byte counts, raw and compressed, on several axes.
 
+Label the unit you actually divided by: 1,000 bytes is a kB and 1,024 is a KiB.
+Two reports that disagree by 2.4% while using the same word waste a reader's
+afternoon.
+
 Measure **the artifact a consumer actually pays for, as the tool that ships it
 reports the size** — rather than summing the output directory. For a web app
 that artifact is the eager-load set, which is what a first paint downloads; for

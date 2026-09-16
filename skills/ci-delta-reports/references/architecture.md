@@ -250,9 +250,14 @@ scattered through the rendering code. These rules cover what adopters need:
 **Missing input blocks the merge.** A check that produced no measurement did not
 pass; it crashed. The same holds for a tree whose job died, and for a check that
 wrote nothing at all. One rule covers all three: a tree counts as measured when
-every expected output file is present and non-empty, and anything short of that
-blocks. Checking that a directory exists is weaker, because an empty directory
-satisfies it.
+every expected output file is present, non-empty, and **shaped the way the
+renderer expects**, and anything short of that blocks.
+
+Validate that shape as you load each measurement, rather than trusting it. A
+truncated artifact that still parses as JSON passes an existence check and a
+size check, and then the renderer throws on a field it assumed — so the job goes
+red with a stack trace and no comment, and the author learns nothing. Reading it
+as "this tree went unmeasured" costs one guard and tells them exactly that.
 
 ## Post one comment, and update it in place
 
@@ -297,7 +302,11 @@ carries noise and the reader can see why.
 
 - **A fork's pull request gets a read-only token**, so the comment step cannot
   write. Either accept that forks see the gate's exit code alone, or move the
-  comment to a separate trigger and take on its risks.
+  comment to a separate trigger and take on its risks. Whichever you choose,
+  have the report job **print the comment body to the log and to the run
+  summary before it tries to post**, and catch the failure from posting. The
+  verdict then survives a missing token, and a contributor on a fork can read
+  the report in the run summary rather than reading a 403.
 - **Head and base build on separate runners, so their toolchains can differ.**
   The lockfile and the pinned runtime version keep that exposure small, and the
   one-job worktree layout removes it at the cost of the parallelism.
