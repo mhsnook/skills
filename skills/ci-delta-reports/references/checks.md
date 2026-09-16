@@ -216,6 +216,10 @@ values in CI and sanity-check that a known dependency is present in the output.
 a real base, that reports a triumphant −100%. Treat an empty measurement the
 same as a missing one.
 
+Whatever shape you measure, **emit a file count**. That is the field the
+empty-build guard reads, and a hand-written `measure()` for a library or a
+Worker that omits it re-opens the −100% hole without any visible sign.
+
 **Noise floor.** Two builds of the same commit differ by a few bytes per chunk.
 The template reports an eager delta under 512 bytes as zero, so a budget never
 trips on build noise.

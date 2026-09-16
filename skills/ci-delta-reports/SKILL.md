@@ -163,7 +163,15 @@ bug.
   reads as newly broken.
 - If the repo already has a bot comment this workflow replaces, call
   `retireComments(github, context, ['### Old heading'])` in the report job once,
-  so open PRs lose the stale comment instead of carrying two.
+  so open PRs lose the stale comment instead of carrying two. This is
+  **mandatory, not optional, when a repo that adopted an earlier version of this
+  skill moves to the hidden marker**: the old comments match neither the new
+  marker nor anything else, so every open PR grows a second one. Check that the
+  new body does not contain the retire string itself, or the workflow deletes
+  its own comment.
+- If you write a custom bundle verdict rather than using the template's, pass
+  the base size through into the sidecar. A `'5%'` budget has no meaning without
+  the number it is 5% of.
 
 ## Step 4 — verify before you hand it over
 

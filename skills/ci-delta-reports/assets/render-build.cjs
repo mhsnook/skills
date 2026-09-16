@@ -24,7 +24,13 @@ const EXCERPT = 40
 // CONFIGURE: the first line of an error in your build tool's output. The
 // excerpt is anchored on this rather than on the tail of the log, because most
 // tools print a summary, a stack, and an exit code after the useful part.
-const ERROR_HEADING = /^\s*(error|ERROR|Error:|\[vite\]|✘|×|failed to)/
+//
+// Check whether your build tool timestamps its lines before you trust this.
+// Astro prints `12:05:39 [ERROR] [vite] ✘ Build failed`, and an anchor that
+// does not allow the clock prefix matches nothing, which silently falls back to
+// quoting the tail of the log.
+const ERROR_HEADING =
+	/^\s*(?:\d{1,2}:\d{2}:\d{2}\s+)?(?:\[(?:ERROR|\w*Error)\]|error\b|ERROR\b|Error:|\[vite\]|✘|×|failed to)/
 
 const read = (p) => {
 	try {
