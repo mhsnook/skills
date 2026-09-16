@@ -127,23 +127,36 @@ Axes that move for different reasons, and so belong apart:
 That last one is the axis people miss and often the most useful. A chunk whose
 hash is unchanged is still in returning visitors' caches, so a PR that adds 2 kB
 to one has really cost every returning visitor the whole chunk again. Report
-which chunks changed first, sizes second. A project with manual chunk groups
-will see its own shared chunks in that list too, and those re-hash on most
-changes: the list answers "what does a returning visitor re-download", not "what
-went wrong".
+which chunks changed first, sizes second.
+
+Compare the **union** of both trees' chunks, not the intersection. A report that
+only lists chunks present on both sides cannot show a chunk that appeared or
+disappeared, which is the largest thing that can happen to this axis.
+
+A project with manual chunk groups sees its own shared chunks in that list too,
+and those re-hash on most changes. The list answers "what does a returning
+visitor re-download", not "what went wrong".
 
 ### When there is no HTML entry point
 
 - **A library.** Take no bundle check. `publish --dry-run` is the check that
   matters, because it catches a package shipping the wrong files.
-- **A server or Worker bundle.** Walk the output, and check whether the platform
-  imposes a hard limit — Cloudflare rejects a Worker over 10 MB compressed — in
-  which case report it as a percentage of the limit rather than as a trend.
+- **A server or Worker bundle.** Report what the deploy tool reports, not what
+  the output directory sums to: the platform compresses the assembled bundle
+  once and counts only what the entry point pulls in, so a sum over files is not
+  the quantity the limit applies to. Where there is a hard limit — Cloudflare
+  rejects a Worker over 64 MiB compressed, on every plan — report it as a share
+  of that limit rather than as a trend, and check the current figure rather than
+  trusting this sentence.
 - **A split client/server output.** Two axes, never one total.
 - **A server-rendered app with no HTML at all.** The eager set lives in the
-  framework's route manifest. Look for it before falling back to walking the
-  directory, and record which source you used, so a fallback is visible rather
-  than silently reporting every lazy chunk as eager.
+  framework's route manifest, and the manifest may not be a data file: TanStack
+  Start compiles it into a module inside the *server* build, and Next.js keeps
+  its own under `.next`. Find it, and parse it by matching delimiters rather
+  than by a regex over indentation — a regex that assumes the emitted
+  whitespace breaks on the next formatter change and falls back silently.
+  Record which source the eager set came from and print it, so a fallback to
+  walking the directory is visible rather than passing as a number.
 
 A Worker repo wants two instruments rather than one: the client bundle takes
 this check, and the Worker takes a deploy dry-run. That dry-run bundles exactly
@@ -202,30 +215,26 @@ read.
 
 ## 7. HTTP contract — optional, head only
 
-Worth describing because it catches what no static check can: a redirect that
-lost its target, a page that started returning 404, a cache header that quietly
-went `no-store`.
+**Skip this unless the repo asks for it.** Most adoptions do not take it, and a
+repo with end-to-end tests already covers the ground.
 
-Start the built server, wait for it to answer, then run a request-only suite
-against it — no browser, so no browser download. What matters:
+It catches what no static check can: a redirect that lost its target, a page
+that started returning 404, a cache header that quietly went `no-store`. Start
+the built server, wait for it to answer, then run a request-only suite — no
+browser, so no browser download. A hermetic script that boots the real runtime
+locally fits the same slot.
 
-- **Wait for readiness, and fail when it never comes.** A poll loop that falls
-  through silently turns "the server never started" into a hundred connection
-  errors.
-- **Do not follow redirects.** Otherwise a 301 → 200 chain reads as 200 and the
-  redirect assertions test nothing.
-- **Assert only headers stable across two runs of the same build.** Dates,
-  etags, cookies and CDN request IDs are not.
-- **List the routes literally.** A glob over the app's own routes passes when a
-  route disappears, which is the failure the suite exists to catch.
-- **Discover data from the app's own sitemap**, and skip rather than fail when
-  the dataset is empty. That is what lets one suite run against an empty CI
-  database and against production.
-
-A hermetic end-to-end script that boots the real runtime locally fits the same
-slot. Run it so a failure reaches the comment, like every other check.
+Four things make the difference between a suite that catches those and one that
+passes regardless: fail when the server never becomes ready rather than letting
+a poll loop fall through; do not follow redirects, or a 301 → 200 chain reads as
+200; assert only headers that are stable across two runs of the same build; and
+list the routes literally, because a glob over the app's own routes passes when
+a route disappears.
 
 ## Workspaces
+
+**Skip this section unless the repo has a workspace file listing packages.** In
+a single-package repo none of it applies.
 
 A recursive runner changes every check above. See failure-modes.md for the path
 splice, bail behaviour, per-package test reports, and the reporter format that

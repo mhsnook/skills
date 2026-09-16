@@ -112,12 +112,15 @@ Read all three before you write anything.
   twice.** Every entry is a real failure from a real adoption, and most of them
   report "no change" while something is broken.
 
-Two working implementations to read rather than imitate line by line:
+These three files stand alone: you need nothing outside them to build this. If
+you happen to have access to either repository below, its CI is a worked example
+of the same design — useful for seeing one set of concrete choices, and not a
+thing to copy.
 
 | Repo | Shape |
 |---|---|
-| `mhsnook/pomoduo`, `.github/ci/` | Vite + Cloudflare Worker. Pruned hard after a review pass — the closest thing to a reference. |
-| `mhsnook/sunlo`, `.github/workflows/` | The original, and the largest: two linters, two formatters, a Supabase e2e job alongside. |
+| `mhsnook/pomoduo`, `.github/ci/` | Vite + Cloudflare Worker, pruned hard after a review pass |
+| `mhsnook/sunlo`, `.github/workflows/` | The largest: two linters, two formatters, an end-to-end job alongside |
 
 ## Step 1 — read the repo first
 
@@ -191,6 +194,18 @@ Then the policy questions, which are the ones people have opinions about:
 
 Ask these as a batch, not one at a time.
 
+**If nobody is available to answer**, decide and write every decision into the
+PR description rather than stalling. These defaults are defensible:
+
+| Check | Default | Why |
+|---|---|---|
+| Build, tests | block | A tree that does not build or pass cannot be judged. |
+| Type errors | block on new | Run the typechecker on `main` first — if the count is already high, report-only and say it tightens at zero. |
+| Lint | block on new if `main` is clean, report-only otherwise | Same test, same reason. Say which you found. |
+| Formatting | block on touched files | The scope makes it safe on any repo. |
+| Bundle size | report-only | Nobody has watched the number yet, so any budget is invented. |
+| Content scan | skip | Never guess what must not ship. An empty scan is machinery pretending to be a check. |
+
 **Formatting blocks, on a different scope.** It is not linting: the formatter
 applies to every file the PR touched, every time — new drift or old — and never
 to a file it left alone. So it does not gate on the delta like the others; it
@@ -200,8 +215,14 @@ teeth.
 
 ## Step 3 — build it
 
-The architecture reference gives you the shape and the reasoning. Three things
+The architecture reference gives you the shape and the reasoning. Four things
 are worth stating here because they are the ones people get wrong:
+
+- **Check what a content-scanning build will do with the files you are about to
+  add.** Tailwind v4 scans the repository for class-like strings, so adding CI
+  scripts ships more CSS to every visitor — measured at 3.4 kB in one repo and
+  1.6 kB in another. Scope the scan to the client source *before* you measure
+  anything, or your first bundle report blames the PR for a pre-existing leak.
 
 - **Write it in the repository's own idiom.** Its language, its script
   conventions, its test runner. If the repo has a test suite, the diff logic's

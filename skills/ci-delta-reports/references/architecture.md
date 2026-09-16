@@ -45,6 +45,28 @@ module with no API calls in it, and the platform coupling in another. The first
 is testable in the repo's own test suite without a token; the second is a thin
 wrapper you verify on the first real run.
 
+**One measurement file per tree** keeps that boundary honest. A shape along
+these lines is enough:
+
+```
+measurement = {
+  tree:   "head" | "base",
+  build:  { ran, ok, log },
+  checks: {
+    typecheck: { ran, issues: [ "file:line:col: message", … ] },
+    lint:      { ran, issues: [ … ] },
+    format:    { ran, drifted: [ path, … ], touched: [ path, … ] },
+    tests:     { ran, total, failed, failures: [ … ] },
+    bundle:    { ran, fileCount, eager: {…}, lazy: {…}, chunks: { name: hash } },
+  },
+}
+```
+
+`ran` is the field that matters, and it carries more than a boolean's worth. A
+check that could not run is not a check that found nothing, and every trap in
+failure-modes.md about reporting clean is a missing `ran`. Set it false whenever
+the tool exited without parseable output, and make the report block on it.
+
 ## Both trees must be measured by the same instrument
 
 This is the central problem, and most of the traps in failure-modes.md are
@@ -104,26 +126,55 @@ The one algorithm worth specifying. Without it, inserting a line above an
 existing error reports one new issue and one resolved issue, and a PR that adds
 an import to a file with ten errors reads as twenty changes.
 
-Compare two lists of issues as sets, then reconcile what is left:
+**It needs two keys, and conflating them is the trap.** Membership uses the
+issue's full position; pairing uses its kind. Use one key for both and the
+algorithm does nothing at all.
 
 ```
 parse each line into { file, line, column, message }
-identity = file + message      # NOT the line number
 
-resolved = base issues whose identity is absent from head
-added    = head issues whose identity is absent from base
+place = file + line + column + message   # is this the same issue, here?
+kind  = file + message                   # is this the same issue, anywhere?
 
-for each pair (r in resolved, a in added) with the same identity:
-    if abs(r.line - a.line) <= PROXIMITY:   # default 10
-        drop both, and count it as "shifted"
+resolved = base issues whose PLACE is absent from head
+added    = head issues whose PLACE is absent from base
+
+for each a in added:                     # one-to-one, so consume as you go
+    find the first unconsumed r in resolved where
+        kind(r) == kind(a) and abs(r.line - a.line) <= PROXIMITY   # default 10
+    if found: consume both, and count one "shifted"
 ```
 
 Report the shifted count separately and quietly: "3 shifted, not counted". It
 tells a reader the number is doing real work.
 
-Two properties matter. The identity must not include the line number, or nothing
-ever pairs. And the pairing must be one-to-one, or ten errors in a moved block
-collapse into one.
+Three properties matter, and each fails differently:
+
+- **Membership on `place`.** Key membership on `kind` and a moved issue is
+  present on both sides, so it never enters `resolved` or `added`, the pairing
+  step is unreachable, and `shifted` is always zero. Worse, an issue that moved
+  400 lines — a different finding, in practice — cancels silently.
+- **Pairing on `kind`.** Include the line number and nothing ever pairs.
+- **One-to-one.** Consume each match, or ten errors in a moved block collapse
+  into one.
+
+Whether `column` belongs in `place` is a judgement call. Including it catches a
+re-indent as a change; excluding it forgives one. Pick, and write the test.
+
+### Test cases
+
+Whatever you write it in, make these pass. They are the cheap ones, and the
+first two are the ones that fail silently.
+
+| base | head | expect |
+|---|---|---|
+| `a.ts:10 X` | `a.ts:14 X` | 0 new, 0 resolved, 1 shifted |
+| `a.ts:10 X` | `a.ts:450 X` | 1 new, 1 resolved, 0 shifted |
+| `a.ts:10 X` | `a.ts:10 X` | 0 new, 0 resolved, 0 shifted |
+| `a.ts:10 X` | `a.ts:12 X`, `a.ts:13 X` | 1 new, 0 resolved, 1 shifted |
+| `a.ts:10 X`, `a.ts:11 X` | `a.ts:14 X` | 0 new, 1 resolved, 1 shifted |
+| `a.ts:10 X` | `b.ts:10 X` | 1 new, 1 resolved, 0 shifted |
+| (empty) | `a.ts:10 X` | 1 new |
 
 Renames defeat this, and nothing here fixes that: a renamed file makes every
 issue in it new and its old path resolved. Say so in the PR template so
@@ -180,10 +231,23 @@ A check that measured nothing still gets a row. An absent row and a passing row
 look identical at a glance, which is the failure this whole report exists to
 avoid.
 
+Page through the comments when you look for the marker. A busy PR passes 100
+comments, and a single-page lookup silently stops finding the comment it wrote,
+so the report starts posting a new one per push at exactly the moment the thread
+is already long.
+
 If the repo already has a bot comment this replaces, delete it once on the first
 run. Match only comments reporting the same checks: a deployment bot's comment
 is not a duplicate. Make sure the new body cannot match the string you retire on,
 or the workflow deletes what it just posted.
+
+**The tool versions are part of the instrument too, and you will not control
+them.** Each tree installs its linter from its own lockfile, so a PR that bumps
+the linter measures the two trees with two different tools. Accept it — pinning
+the base tree to head's dependency list would break the lockfile check that
+makes either measurement trustworthy — and know that a dependency-bump PR is the
+other case, alongside a rules change, where the delta is noise and the reader
+can see why.
 
 ## Known limits
 

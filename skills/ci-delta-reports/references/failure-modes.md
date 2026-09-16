@@ -13,15 +13,20 @@ A delta reporter's failure mode is not a crash. It is **"no change"**.
   gate exited. One repo shipped green while the gate printed three failures.
   Anything piped is affected, including `build | tee log`, which records a
   failed build as a success. Set the shell once at workflow level, not per step.
-- **A tool that cannot run prints nothing your parser matches.** Exit 1 means
-  "found issues"; exit 2 usually means "could not run" — a bad config, a missing
-  plugin, a parse error. The output is then empty, which reads as zero issues.
-  Capture the exit status and write one synthetic issue when it is non-zero with
-  no parseable lines.
-- **ESLint 9 removed the `unix` formatter from core.** `-f unix` exits 2 with a
-  line of advice, which the grep drops. One repo ran ESLint in CI for months
-  with it contributing zero issues — not because the code was clean. Read `-f
-  json` and convert, which also fixes the absolute paths ESLint prints.
+- **A tool that cannot run prints nothing your parser matches.** Do not read the
+  exit code alone — `tsc --noEmit` exits 2 for "found errors", which is a
+  perfectly successful run. The rule that generalises is **non-zero exit with no
+  parseable output means it could not run**. Record that as "did not run" and
+  block on it; a check that could not run is not a check that found nothing.
+- **Read machine output, never a human formatter.** Text formats get reworded,
+  colourised and dropped between versions, and the failure is always silent
+  because your parser matches nothing. ESLint 9 moved the `unix` formatter out
+  of core, so `-f unix` exits 2 with a line of advice — one repo ran ESLint in
+  CI for months with it contributing zero issues, not because the code was
+  clean. Ask for JSON, and treat an unparseable payload as "did not run".
+- **A JSON payload whose shape changed parses fine and means nothing.** Reading
+  `parsed.diagnostics ?? []` turns a renamed key into zero issues and a green
+  report. Assert the key exists.
 - **A compound typecheck hides most of itself.** `tsc -p a && tsc -p b && tsc -p
   c` stops at the first failure, so projects b and c are never checked. Fixing
   the last error in `a` then makes every pre-existing error in `b` and `c`
@@ -45,6 +50,15 @@ A delta reporter's failure mode is not a crash. It is **"no change"**.
   directory passes an existence check, so a job that died right after creating
   it reads as a clean bill of health. Check for each expected file, not for the
   directory.
+- **A dot-directory escapes the glob that was supposed to cover it.**
+  TypeScript's `include: ["**/*.ts"]` does not match `.github/ci/`, so the CI
+  code stays outside the typecheck however emphatically you intended otherwise.
+  Whatever you do to make the check scripts subject to the repo's own checks,
+  plant an error in one and confirm it is reported.
+- **A GitHub expression treats `0` as false.** `fetch-depth: ${{ cond && 0 || 1
+  }}` yields 1 on both branches of the condition, so a step that needed full
+  history quietly got a shallow clone. Anything downstream that walks history
+  then reports whatever a one-commit repository looks like.
 
 ## It reports change where there is none
 
@@ -66,10 +80,12 @@ A delta reporter's failure mode is not a crash. It is **"no change"**.
   both trees.
 - **A CSS framework that scans the repository for class names** — Tailwind v4
   does — makes the CSS total depend on which files exist, so adding CI scripts
-  moves it. Worth knowing before you dismiss it, because in one repo this was
-  not noise: the scan was reading class-like strings out of the new CI scripts
-  and shipping 3.4 kB of generated CSS to every visitor. Scoping the scan to the
-  client source took the CSS *down* 4.55 kB against the branch point.
+  moves it. Do not file this under noise: in two separate repos the scan was
+  reading class-like strings out of the new CI scripts and shipping real
+  generated CSS to every visitor, 3.4 kB in one and 1.6 kB in the other. Scope
+  the scan to the client source *before* you measure anything — otherwise your
+  first bundle report blames the PR for a pre-existing leak, and your second one
+  hides it.
 - **The sibling checkout is invisible only if the base tree ignores it.** The
   `.ci-head/` entry lives in head's ignore file, and the base job checks out the
   base branch, which has never heard of that path — so the base job walks into
@@ -79,6 +95,10 @@ A delta reporter's failure mode is not a crash. It is **"no change"**.
 - **Absolute paths differ between two checkouts.** In a one-job worktree layout
   the base tree is at `/tmp/base-branch` and head at the workspace root, so any
   tool printing absolute paths reports every issue as one resolved plus one new.
+- **The package manager looks for its version at the workspace root.** Check the
+  tree out into a subdirectory — which the sibling-checkout layout does — and
+  the setup action reads a `package.json` that is not there. Point it at the
+  file explicitly rather than pinning the version a second time.
 
 ## It blocks the wrong person, or nobody
 
