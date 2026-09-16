@@ -24,8 +24,9 @@ which ones your design has already solved.
   successful run. The rule that generalises is that **a non-zero exit with no
   parseable output means the tool could not run.** Record that as "did not run"
   and block on it, because a check that could not run has not found zero issues.
-- **A human-readable formatter can disappear between versions, and your parser
-  then matches nothing.** ESLint 9 moved its `unix` formatter out of core, so
+- **Read machine output rather than a human formatter.** A text format can get
+  reworded, colourised or dropped between versions, and your parser then matches
+  nothing. ESLint 9 moved its `unix` formatter out of core, so
   `-f unix` exits 2 with a line of advice — one repository ran ESLint in CI for
   months with it contributing zero issues, while its code was not clean. Ask the
   tool for JSON, and treat an unparseable payload as "did not run".
@@ -60,7 +61,9 @@ which ones your design has already solved.
 - **A dot-directory escapes the glob that was supposed to cover it.** *(Any
   layout.)* TypeScript's `include: ["**/*.ts"]` does not match `.github/ci/`, so
   the CI code stays outside the typecheck however firmly you intended otherwise.
-  Plant an error in a check script and confirm the report names it.
+  Put the scripts in a directory whose name does not start with a dot — `ci/` at
+  the repository root — which removes the problem without a config change. Then
+  plant an error in a check script and confirm the report names it.
 - **A GitHub expression treats `0` as false.** *(GitHub Actions.)* `fetch-depth:
   ${{ cond && 0 || 1 }}` yields 1 on both branches of the condition, so a step
   that needed full history got a shallow clone, and anything downstream that
@@ -79,7 +82,7 @@ which ones your design has already solved.
   stays package-relative, so `packages/a/src/types.ts` and
   `packages/b/src/types.ts` both key as `src/types.ts`. Splice the two halves
   back together. Both trees produce the same wrong shape, so the delta looks
-  plausible while colliding same-named files across packages.
+  plausible while same-named files collide across packages.
 - **A typechecker prints one error per project that includes the file.** With
   project references, a shared directory belongs to several projects, so every
   error in shared code appears two or three times. Sort unique.
@@ -94,12 +97,14 @@ which ones your design has already solved.
   other. Scope that scan to the client source *before* you measure anything, or
   your first bundle report blames the pull request for a leak that predates it,
   and your second report hides the leak.
-- **The base tree does not ignore the sibling checkout.** *(Sibling layout.)*
-  The `.ci-head/` entry lives in head's ignore file, and the base job checks out
-  the base branch, which does not contain that path — so the base job walks into
-  the directory it just created and reports head's files as its own. It hides
-  from casual testing, because it shows up only when those files carry issues.
-  The ignore file is a judgment config, so copy it with the others.
+- **The base tree does not ignore a checkout placed inside it.** *(Instrument
+  inside the measured tree.)* An ignore rule for `.ci-head/` lives on head, and
+  the base job checks out the base branch, which does not contain that rule — so
+  the base job's linter walks into the directory the workflow just created and
+  reports head's files as the base branch's own. It hides from casual testing,
+  because it shows up only once those files carry issues. Two sibling
+  directories make this unreachable; copying head's ignore file in is the
+  weaker fix.
 - **Two checkouts sit at different absolute paths.** *(Worktree layout.)* The
   base tree lives at `/tmp/base-branch` and head at the workspace root, so any
   tool that prints absolute paths reports every issue as one resolved plus one

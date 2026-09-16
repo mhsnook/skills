@@ -184,11 +184,11 @@ review. These defaults are defensible:
 
 | Check | Default | Why |
 |---|---|---|
-| Build, tests | block | A tree that fails to build, or fails its tests, cannot support any other judgement. |
-| Type errors | block on new | Run the typechecker on `main` first. If it already reports a high count, choose report-only and say in the comment that the check tightens at zero. |
-| Lint | block on new when `main` is clean, report-only otherwise | Same test, same reasoning. Say which one you found. |
-| Formatting | block on touched files | The scope makes this check safe in any repository, however much drift it carries. |
-| Bundle size | report-only | Nobody has watched this number yet, so any budget you pick is a guess. |
+| Build, tests | `must-pass` | A tree that fails to build, or fails its tests, cannot support any other judgement. |
+| Type errors | `no-new` | Run the typechecker on `main` first. If it already reports a high count, choose `report-only` and say in the comment that the check tightens at zero. |
+| Lint | `no-new` when `main` is clean, `report-only` otherwise | Same test, same reasoning. Say which one you found. |
+| Formatting | `touched-clean` | The scope makes this check safe in any repository, however much drift it carries. |
+| Bundle size | `report-only` | Nobody has watched this number yet, so any budget you pick is a guess. |
 | Content scan | skip | Ask the team which strings must stay out of the build. A scan with an invented list is machinery pretending to be a check. |
 
 **The formatter check blocks on a different scope** — the files this pull
@@ -207,11 +207,10 @@ instrument* in architecture.md.
 
 Four more points deserve stating here, because adopters get these wrong:
 
-- **Cache the base job.** Its output depends on the base SHA and on head's
-  configs, and neither one changes when the author pushes another commit — yet
-  the job reinstalls and rebuilds on every push for the life of the pull
-  request. Key a cache on those two inputs and skip the job on a hit, so the
-  repository spends runner minutes only on work that can produce a new answer.
+- **Cache the base job.** Key a cache on the base SHA plus a hash of head's
+  instrument, and restore the measurement on a hit. Without that cache, the base
+  job reinstalls and rebuilds on every push for the life of the pull request,
+  and every one of those runs produces the same answer as the first.
 - **Write the workflow in the repository's own idiom**: its language, its script
   conventions, its test runner. When the repository has a test suite, put the
   diff logic's tests in that suite. A bespoke `--selftest` flag adds a second,
@@ -237,8 +236,9 @@ work by reading it, and five of them still failed on their first real run.
   the job turn red. A gate that has only ever passed is a gate nobody has
   tested.
 - **Prove that a missing measurement blocks.** Delete one output file and re-run
-  the report job. It needs to say that the tree went unmeasured; if it says "no
-  change" instead, a broken run reads to the team as a clean one.
+  the report job. It needs to say that the tree went unmeasured. If it says "no
+  change" instead, the team reads a broken run as a clean one, which is the
+  failure this whole workflow exists to prevent.
 - **Prove the formatter gate fires, and that it stops firing.** Plant drift in a
   file the pull request touched, then in a file it left alone.
 - **Prove the repository's own checks reach the check scripts.** They are files

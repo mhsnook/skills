@@ -33,8 +33,8 @@ plugin names.
 Treat "skipped" and "cancelled" as different from "success". A tree the runner
 did not build has not shown that it builds.
 
-**Gate:** block. If a tree does not build, no other check in the report can say
-anything trustworthy about it.
+**Gate:** `must-pass`. If a tree does not build, no other check in the report
+can say anything trustworthy about it.
 
 ## 1. Type errors
 
@@ -64,10 +64,10 @@ typechecker prints `file:line:col: message`; `astro check` prints
 `file:line:col - error ts(NNNN):` with ANSI colour and code frames. A parser fed
 escape codes matches nothing while appearing to run.
 
-**Gate:** block on new issues, which suits almost every repository, because a
-type error is unambiguous and cheap to fix at the moment someone introduces it.
-Run the typechecker on the base branch first: if it already reports a high
-count, start report-only and say in the comment that the check tightens at zero.
+**Gate:** `no-new`, which suits almost every repository, because a type error is
+unambiguous and cheap to fix at the moment someone introduces it. Run the
+typechecker on the base branch first: if it already reports a high count, start
+with `report-only` and say in the comment that the check tightens at zero.
 
 ## 2. Lint
 
@@ -83,10 +83,10 @@ on.
 If the linter distinguishes warnings from errors, separate them: block on
 errors, report warnings.
 
-**Gate:** block on new issues in a maintained codebase. In a legacy one, run
-report-only for a few weeks so the team watches the number first, then tighten.
-Blocking on new issues in a repository that already holds thousands is how a
-team ends up switching the workflow off.
+**Gate:** `no-new` in a maintained codebase. In a legacy one, run `report-only`
+for a few weeks so the team watches the number first, then tighten. Blocking on
+new issues in a repository that already holds thousands is how these workflows
+get switched off.
 
 ## 3. Formatter drift
 
@@ -127,7 +127,7 @@ files was produced" on every pull request from then on. Adopting a formatter is
 a separate decision that produces a much larger diff, so offer it rather than
 folding it in.
 
-**Gate:** block on touched files.
+**Gate:** `touched-clean`.
 
 ## 4. Bundle size
 
@@ -202,8 +202,8 @@ those variables are missing, it can tree-shake dependencies away, and the build
 then looks dramatically smaller while meaning nothing. Set dummy-but-truthy
 values, and check that a known dependency survived into the output.
 
-**Gate:** report-only until someone has watched the number for a few weeks, then
-a byte budget generous enough that only a real regression trips it. Percentages
+**Gate:** `report-only` until someone has watched the number for a few weeks,
+then a `budget` generous enough that only a real regression trips it. Percentages
 misbehave on small bundles, where 5% of 40 kB is one dependency bump. Whatever
 budget you set, ignore a delta of a few hundred bytes: two builds of the same
 commit differ by that much.
@@ -227,7 +227,7 @@ outcome into the renderer.
 Cap the failure list at about 20 entries, and truncate each message to its first
 line. Stack traces belong in the job log.
 
-**Gate:** block on any failure, and on a missing report.
+**Gate:** `must-pass` — any failure blocks, and so does a missing report.
 
 ## 6. Build content scan
 
@@ -249,7 +249,7 @@ bundle measurement already read, so the job builds once. Write the result into
 the same comment: a check that only turns a job red is a check people re-run
 rather than read.
 
-**Gate:** block. A leaked key is not a trend to watch.
+**Gate:** `must-pass`. A leaked key is not a trend to watch.
 
 ## 7. HTTP contract — optional, head only
 
