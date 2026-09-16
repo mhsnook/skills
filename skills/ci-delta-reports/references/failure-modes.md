@@ -1,148 +1,152 @@
-# How this CI lies to you
+# How this CI reports the wrong answer
 
-Every entry below happened in a real adoption. They are grouped by what the
-report says while it is wrong, because that is how you will meet them: not as an
-error, but as a plausible number.
+Each entry below happened in a real adoption. They are grouped by what the
+report says while it is wrong, because that grouping matches how you meet them:
+not as an error, but as a plausible number.
 
-A delta reporter's failure mode is not a crash. It is **"no change"**.
+A delta reporter rarely fails by crashing. It fails by saying **"no change"**.
+
+Each entry names the layout it applies to where that matters, so you can tell
+which ones your design has already solved.
 
 ## It reports clean, and nothing is checking
 
-- **A pipeline exits with its LAST command's status, so `errexit` alone never
-  catches a failure upstream of a pipe.** True of every POSIX shell and every
-  runner that spawns one. GitHub Actions runs `run:` under `bash -e` with no
-  `pipefail`, so `gate | tee` exits 0 however the gate exited — one repo shipped
-  green while the gate printed three failures, and `build | tee log` recorded a
-  failed build as a success. Set `pipefail` wherever your runner defines the
-  shell, once rather than per step, or do not pipe the command whose status you
-  need.
-- **A tool that cannot run prints nothing your parser matches.** Do not read the
-  exit code alone — `tsc --noEmit` exits 2 for "found errors", which is a
-  perfectly successful run. The rule that generalises is **non-zero exit with no
-  parseable output means it could not run**. Record that as "did not run" and
-  block on it; a check that could not run is not a check that found nothing.
-- **Read machine output, never a human formatter.** Text formats get reworded,
-  colourised and dropped between versions, and the failure is always silent
-  because your parser matches nothing. ESLint 9 moved the `unix` formatter out
-  of core, so `-f unix` exits 2 with a line of advice — one repo ran ESLint in
-  CI for months with it contributing zero issues, not because the code was
-  clean. Ask for JSON, and treat an unparseable payload as "did not run".
-- **A JSON payload whose shape changed parses fine and means nothing.** Reading
-  `parsed.diagnostics ?? []` turns a renamed key into zero issues and a green
-  report. Assert the key exists.
+- **A pipeline exits with its LAST command's status, so `errexit` alone does not
+  catch a failure upstream of a pipe.** This holds for every POSIX shell and
+  every runner that spawns one. GitHub Actions runs `run:` under `bash -e`
+  without `pipefail`, so `gate | tee` exits 0 however the gate exited — one
+  repository shipped a green run while the gate printed three failures, and
+  `build | tee log` recorded a failed build as a success. Set `pipefail` where
+  your runner defines the shell, once rather than per step, or keep the command
+  whose status you need out of a pipe.
+- **A tool that cannot run prints nothing your parser matches.** Read more than
+  the exit code: `tsc --noEmit` exits 2 when it finds errors, which is a
+  successful run. The rule that generalises is that **a non-zero exit with no
+  parseable output means the tool could not run.** Record that as "did not run"
+  and block on it, because a check that could not run has not found zero issues.
+- **A human-readable formatter can disappear between versions, and your parser
+  then matches nothing.** ESLint 9 moved its `unix` formatter out of core, so
+  `-f unix` exits 2 with a line of advice — one repository ran ESLint in CI for
+  months with it contributing zero issues, while its code was not clean. Ask the
+  tool for JSON, and treat an unparseable payload as "did not run".
+- **A JSON payload whose shape changed still parses, and still means nothing.**
+  Reading `parsed.diagnostics ?? []` turns a renamed key into zero issues and a
+  green report, so assert that the key exists.
 - **A compound typecheck hides most of itself.** `tsc -p a && tsc -p b && tsc -p
-  c` stops at the first failure, so projects b and c are never checked. Fixing
-  the last error in `a` then makes every pre-existing error in `b` and `c`
-  appear as newly added.
+  c` stops at the first project that fails, so it checks neither b nor c. Fixing
+  the last error in `a` then makes every pre-existing error in `b` and `c` read
+  as newly added.
 - **A recursive runner stops at the first failing package.** `pnpm -r typecheck`
-  measured 5 errors over 3 of 15 projects; with `--no-bail`, 41 over all 15.
-  How much of the repo gets measured then depends on which package fails first,
-  so the delta swings on unrelated changes. That is worse than a wrong count,
-  because it looks like movement.
-- **The check scripts were excluded from their own checks.** *(Copy-over layouts
-  only.)* If head's scripts are copied *into* both trees, any issue in them
-  appears on both sides and cancels to "no change", so the usual fix is to
-  exclude them from the deltas — after which drift in a check script is
-  invisible to the gate by construction. Running head's tooling from a sibling
-  directory removes the cancellation, so no exclusion is needed.
-- **The formatter gate's two lists never intersect.** The touched-file list and
-  the drift list must have the same path shape — repo-root-relative, no `./`. A
-  formatter run from a subdirectory, or a `--list-different` emitting absolute
-  paths, makes the intersection empty on every PR, and the gate silently never
-  fires again.
-- **Both trees report zero because neither was measured.** An empty output
-  directory passes an existence check, so a job that died right after creating
-  it reads as a clean bill of health. Check for each expected file, not for the
-  directory — and check it is non-empty, because a build that wrote nothing is
-  the same failure wearing a disguise.
+  measured 5 errors across 3 of 15 projects; with `--no-bail`, it measured 41
+  across all 15. Without that flag, how much of the repository gets measured
+  depends on which package fails first, so the delta swings on unrelated
+  changes. That is worse than a wrong count, because it looks like movement.
+- **The check scripts sat outside their own checks.** *(Copy-over layouts.)* If
+  the base job copies head's scripts *into* both trees, an issue in a script
+  appears on both sides and cancels to "no change", so adopters exclude those
+  scripts from the deltas — after which drift in a check script escapes the gate
+  by construction. Running head's tooling from a sibling directory removes the
+  cancellation, so the exclusion becomes unnecessary.
+- **The formatter gate's two lists do not intersect.** The touched-file list and
+  the drift list need the same path shape — repo-root-relative, with no `./`
+  prefix. A formatter run from a subdirectory, or a `--list-different` that
+  emits absolute paths, empties the intersection on every pull request, and the
+  gate then stops firing.
+- **Both trees report zero because the runner measured neither.** An empty
+  output directory satisfies an existence check, so a job that died right after
+  creating that directory reads as a clean bill of health. Check for each
+  expected file rather than for the directory, and check that the file is
+  non-empty, because a build that wrote nothing is the same failure in disguise.
 - **A dot-directory escapes the glob that was supposed to cover it.** *(Any
   layout.)* TypeScript's `include: ["**/*.ts"]` does not match `.github/ci/`, so
-  the CI code stays outside the typecheck however emphatically you intended
-  otherwise. Plant an error in a check script and confirm it is reported.
-- **A GitHub expression treats `0` as false.** *(GitHub Actions only.)*
-  `fetch-depth: ${{ cond && 0 || 1 }}` yields 1 on both branches of the
-  condition, so a step that needed full history quietly got a shallow clone, and
-  anything downstream that walks history reports whatever a one-commit
-  repository looks like.
+  the CI code stays outside the typecheck however firmly you intended otherwise.
+  Plant an error in a check script and confirm the report names it.
+- **A GitHub expression treats `0` as false.** *(GitHub Actions.)* `fetch-depth:
+  ${{ cond && 0 || 1 }}` yields 1 on both branches of the condition, so a step
+  that needed full history got a shallow clone, and anything downstream that
+  walks history reports what a one-commit repository looks like.
 
-## It reports change where there is none
+## It reports a change where nothing changed
 
 - **A hash-stripping pattern that accepts a range of lengths matches too early.**
-  In `client-entry-a1b2c3d4.js`, the substring `entry-a1b2c3d4` is itself inside
-  a `{8,20}` range, so the key becomes `client.js`. Every chunk whose own name
-  contains a dash then collapses onto a neighbour's key, and two different files
-  compare as one unchanged chunk. Pin each accepted hash length exactly.
+  In `client-entry-a1b2c3d4.js`, the substring `entry-a1b2c3d4` falls inside a
+  `{8,20}` range, so the key becomes `client.js`. Every chunk whose own name
+  contains a dash then collapses onto a neighbour's key, and the report compares
+  two different files as one unchanged chunk. Pin each accepted hash length
+  exactly.
 - **A recursive runner rewrites every path.** `pnpm -r`, `turbo`, `nx` and
-  `lerna` prefix each line with the package while the tool's own path stays
-  package-relative, so `packages/a/src/types.ts` and `packages/b/src/types.ts`
-  both key as `src/types.ts`. Splice the two halves back together. Both trees
-  produce the same wrong shape, so the delta looks plausible.
+  `lerna` prefix each line with the package directory while the tool's own path
+  stays package-relative, so `packages/a/src/types.ts` and
+  `packages/b/src/types.ts` both key as `src/types.ts`. Splice the two halves
+  back together. Both trees produce the same wrong shape, so the delta looks
+  plausible while colliding same-named files across packages.
 - **A typechecker prints one error per project that includes the file.** With
   project references, a shared directory belongs to several projects, so every
   error in shared code appears two or three times. Sort unique.
-- **Locale changes sort order.** Under a UTF-8 locale `sort` ignores leading
-  punctuation, so `.oxfmtrc.json` orders after `AGENTS.md`. Force byte order on
-  both trees.
+- **The locale changes the sort order.** Under a UTF-8 locale, `sort` ignores
+  leading punctuation, so it orders `.oxfmtrc.json` after `AGENTS.md`. Force
+  byte order on both trees.
 - **A CSS framework that scans the repository for class names** — Tailwind v4
-  does — makes the CSS total depend on which files exist, so adding CI scripts
-  moves it. Do not file this under noise: in two separate repos the scan was
-  reading class-like strings out of the new CI scripts and shipping real
-  generated CSS to every visitor, 3.4 kB in one and 1.6 kB in the other. Scope
-  the scan to the client source *before* you measure anything — otherwise your
-  first bundle report blames the PR for a pre-existing leak, and your second one
-  hides it.
-- **The sibling checkout is invisible only if the base tree ignores it.** The
-  `.ci-head/` entry lives in head's ignore file, and the base job checks out the
-  base branch, which has never heard of that path — so the base job walks into
+  does — makes the CSS total depend on which files exist, so the CI scripts you
+  add move it. This belongs under real changes rather than noise: in two
+  repositories the scan read class-like strings out of the new CI scripts and
+  shipped real generated CSS to every visitor, 3.4 kB in one and 1.6 kB in the
+  other. Scope that scan to the client source *before* you measure anything, or
+  your first bundle report blames the pull request for a leak that predates it,
+  and your second report hides the leak.
+- **The base tree does not ignore the sibling checkout.** *(Sibling layout.)*
+  The `.ci-head/` entry lives in head's ignore file, and the base job checks out
+  the base branch, which does not contain that path — so the base job walks into
   the directory it just created and reports head's files as its own. It hides
-  from casual testing, because it only shows up when those files have issues.
-  The ignore file is a judgment config; copy it with the others.
-- **Absolute paths differ between two checkouts.** In a one-job worktree layout
-  the base tree is at `/tmp/base-branch` and head at the workspace root, so any
-  tool printing absolute paths reports every issue as one resolved plus one new.
-- **The package manager looks for its version at the workspace root.** Check the
-  tree out into a subdirectory — which the sibling-checkout layout does — and
-  the setup action reads a `package.json` that is not there. Point it at the
-  file explicitly rather than pinning the version a second time.
+  from casual testing, because it shows up only when those files carry issues.
+  The ignore file is a judgment config, so copy it with the others.
+- **Two checkouts sit at different absolute paths.** *(Worktree layout.)* The
+  base tree lives at `/tmp/base-branch` and head at the workspace root, so any
+  tool that prints absolute paths reports every issue as one resolved plus one
+  new.
+- **The package manager looks for its version at the workspace root.** A
+  sibling-checkout layout puts the tree one level down, so the setup action
+  reads a `package.json` that is not there. Pass it the path explicitly, rather
+  than pinning the version a second time.
 
-## It blocks the wrong person, or nobody
+## It blocks the wrong person, or blocks nobody
 
-- **A broken base branch reads as the PR's fault.** Read both build outcomes, so
-  a PR that inherits a broken base is told so rather than blamed, and a PR that
-  repairs one hears that it did.
-- **An absent touched-file list is not an empty PR.** Treat it as a crashed step
-  and block. Otherwise a broken workflow reads as a clean bill of health.
-- **Two-dot and three-dot diffs differ.** With the default `pull_request`
-  checkout, `HEAD` is the merge ref, so a two-dot diff against the base SHA is
-  the PR's own footprint. Check out the head SHA instead and two-dot silently
-  widens to every file that landed on base since the branch diverged.
+- **A broken base branch reads as the author's fault.** Read both build
+  outcomes, so the report tells an author who inherited a broken base that they
+  inherited it, and tells an author who repaired one that they did.
+- **An absent touched-file list is not an empty pull request.** Treat it as a
+  crashed step and block, because otherwise a broken workflow reads as a clean
+  bill of health.
+- **Two-dot and three-dot diffs answer different questions.** Under the default
+  `pull_request` checkout, `HEAD` is the merge ref, so a two-dot diff against
+  the base SHA gives the pull request's own footprint. If you check out the head
+  SHA instead, that two-dot diff widens to every file that landed on the base
+  branch since the author created their branch.
 - **A build that exits zero having written nothing** measures as a triumphant
-  −100%. Treat an empty measurement as a missing one. Whatever shape you
-  measure, emit a file count, or that guard has nothing to read.
+  −100%. Treat an empty measurement as a missing one, and emit a file count
+  whatever shape you measure, or that guard has nothing to read.
 - **A crashed test runner leaves reports that parse.** In a workspace, each
   runner process resolves its output path against its own directory, so one
   absolute path keeps only whichever package finished last — and the files that
-  do exist parse perfectly and count zero failures. Carry the step's own outcome
-  into the report.
-- **The gate only catches checks that reported.** A check whose job died writes
-  no measurement at all, so a rule that inspects measurements never sees it.
-  Name the outputs you expect and block on their absence.
+  survive parse perfectly and count zero failures. Carry the test step's own
+  outcome into the report.
+- **The gate sees only the checks that reported.** A check whose job died writes
+  no measurement at all, so a rule that inspects measurements does not see it.
+  Name the outputs you expect, and block when one is absent.
 
 ## It damages the repository
 
-- **Running the formatter in write mode to find drift eats uncommitted work.**
-  The usual shape — format, diff, then restore with `git checkout -- .` — is
-  correct in CI and destructive anywhere else. Worse on a dirty tree: the diff
-  reports your edits as drift, and the restore rewrites files the shell is still
-  reading, so the run produces partial output that looks like a result. Use the
-  tool's read-only list mode. If it genuinely lacks one, do the write-and-restore
-  in a throwaway copy.
+- **Running the formatter in write mode to find drift destroys uncommitted
+  work.** The usual shape — format, diff, then restore with `git checkout -- .`
+  — is correct in CI, where the checkout is clean, and destructive anywhere
+  else. On a dirty tree it does worse: the diff reports the developer's edits as
+  drift, and the restore rewrites files the shell is still reading, so the run
+  produces partial output that looks like a result. Use the formatter's
+  read-only list mode. If a formatter genuinely lacks one, do the
+  write-and-restore in a throwaway copy.
 
-## Traps in the writing, not the code
+## Traps in the writing, rather than in the code
 
-- **Excluding vendored paths only in the tool's config.** Until the configs are
-  shared, each tree reads its own, so a PR that edits an ignore rule moves its
-  own baseline.
-- **A content scan written against identifiers.** String literals survive
-  minification and identifiers do not: `__TEST_ONLY__` is still there in the
-  bundle, while `isTestMode` became `a`.
+- **Excluding vendored paths in the tool's config alone.** Until both trees
+  share head's configs, each tree reads its own, so a pull request that edits an
+  ignore rule moves its own baseline.

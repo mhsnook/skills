@@ -6,32 +6,35 @@ license: MIT
 
 # CI delta reports
 
-Build CI that answers **"what did this PR change?"** rather than **"is the repo
-clean?"**
+You are going to build a CI workflow that answers **"what did this pull request
+change?"** rather than **"is the repository clean?"**
 
-The difference matters most on a codebase with existing debt. A workflow that
-fails on any lint error is unusable when the repo already has 4,000 of them, so
-teams turn it off. A workflow that fails only on *newly added* errors works from
-day one, and the count ratchets down as people touch old files.
+The difference matters most on a codebase that carries debt. A workflow that
+fails on any lint error is unusable once the repository holds 4,000 of them, so
+the team switches it off. A workflow that fails only on the errors a pull
+request *adds* works from its first run, and the total drops as people touch old
+files.
 
-Both are legitimate. Ask which one the developer wants — do not assume this one.
+Both designs are legitimate. Ask the developer which one they want, so that you
+build the workflow they will keep.
 
-You are building this CI yourself, in whatever language and style the
-repository already uses. These three files stand alone — read all of them
-before you write anything.
+You write this workflow yourself, in the language and style the repository
+already uses. These three files tell you what to build; read all of them before
+you write anything.
 
 - [references/architecture.md](references/architecture.md) — the structural
-  decisions, and the one algorithm worth specifying exactly
-- [references/checks.md](references/checks.md) — per check: what to measure and
-  what the delta means
+  decisions, and the one algorithm that needs an exact specification
+- [references/checks.md](references/checks.md) — per check: what to measure, and
+  what its delta means
 - [references/failure-modes.md](references/failure-modes.md) — **read this
-  twice.** Every entry is a real failure from a real adoption, and most of them
-  report "no change" while something is broken.
+  twice.** Each entry describes a real failure from a real adoption, and most of
+  them make the report say "no change" while something is broken.
 
 ## What you will produce
 
-CI that writes one comment on the pull request and updates it in place on every
-push: a summary table, then the detail under it. On a PR with something to fix:
+The workflow writes one comment on the pull request and updates that same
+comment on every push. The comment leads with a summary table and puts the
+detail underneath. On a pull request that has something to fix:
 
 ```markdown
 ### PR checks
@@ -64,180 +67,211 @@ _Compared against `main`._
 - **Tests** — 891/891 passed, 7 reports merged
 ```
 
-On a clean PR the same shape renders with zero deltas, a ✅ on every row, and
-one line of detail per check.
+On a clean pull request the comment keeps the same shape, shows a zero delta and
+a ✅ on every row, and gives one line of detail per check.
 
-Four things in that shape are deliberate:
+Four properties of that comment are deliberate, and each one earns its place:
 
-- **The delta column is the product.** Absolute counts live in the detail, where
-  they answer "how bad is it overall"; the table answers "what did I just do".
-- **Three states, not two.** ✅ passed, ❌ blocking, ⚠️ moved but not gated. A
-  report-only check that moved deserves attention without stopping anyone, and
-  a reader can tell at a glance which failures they must act on.
-- **No Build row while both trees build.** It appears only to say that this PR
-  broke the build, fixed a broken base branch, or inherited one already broken.
-  Same rule everywhere: say nothing when there is nothing to say.
-- **The formatter's two lines are the load-bearing pair** on a repo carrying
-  debt. A file you touched ships formatted, whether the drift is new or was
-  there before you opened the file. A file you did not touch blocks nothing,
-  and is reported only as a trend.
+- **The delta column carries the product.** The detail lines hold the absolute
+  counts, which answer "how bad is this repository overall". The table answers
+  "what did I just do", which is the question the author of the pull request
+  actually has.
+- **The status column uses three states.** ✅ means the check passed, ❌ means
+  the check blocks the merge, and ⚠️ means a report-only check moved. If the
+  table used two states, a reader could not tell which failures they have to act
+  on, so they would read every detail line to find out.
+- **The report job omits the Build row while both trees build.** It adds that
+  row only to say that this pull request broke the build, repaired a broken base
+  branch, or inherited a base branch that was already broken. A bot that reports
+  success on every green pull request teaches the team to skim past it, which
+  costs the one time it reports a failure.
+- **The two formatter lines carry the check's scope.** A file the author touched
+  ships formatted, whether the drift is new or predates the pull request. A file
+  the author left alone blocks nothing, and the comment reports it as a trend.
+  This pair is what makes the check safe to switch on in a repository that
+  already has 84 unformatted files.
 
-## Step 1 — read the repo first
+## Step 1 — read the repository first
 
-Determine:
+Find out the following, so that your questions in step 2 cost the developer as
+little time as possible:
 
-- The package manager and **where its version is pinned** — pnpm's
+- **Where the repository pins its package manager version** — pnpm's
   `packageManager` field, `go.mod`, `rust-toolchain.toml`, `.python-version`.
-  Let the setup step read that file; pinning the version a second time in the
-  workflow is the most common way this CI breaks.
-- The runtime version and where it is declared. If nothing declares it, offer to
-  add that file — then read *Both trees must be measured by the same instrument*
-  in architecture.md, because the base branch will not have it yet.
-- Which of typecheck, lint, format, build and test exist as real commands. A
-  repo with no formatter cannot take the formatter check; adopting one is a
-  separate decision with a much larger diff.
-- Whether the typechecker needs generated files first, and whether it is a
-  compound command whose first half can fail in a different output format.
-- What the build emits, and in what shape: an HTML entry point, a library
-  directory, a server bundle, a split client/server output — or nothing a
-  consumer downloads, in which case there is no bundle check to take.
-- Whether any build step globs the whole repository for its inputs. Tailwind v4
-  scans for class names that way, so the files you are about to add change the
-  output. Scope such a glob to its real source before you measure anything, or
-  your first report blames this PR for a pre-existing leak.
-- Whether anything already comments on PRs, so you retire it rather than adding
-  a second bot voice.
-- Repo-specific jobs that must survive: a database service, a browser container,
-  a release workflow, a deploy dry-run. This work replaces the *reporting*,
-  never those.
+  The setup step needs to read that file. If the workflow pins the version a
+  second time, the two pins drift apart, which is the most common way this CI
+  breaks.
+- **Which file declares the runtime version.** If no file declares it, offer to
+  add one — and read *Measure both trees with the same instrument* in
+  architecture.md first, because the base branch does not have the file your
+  pull request adds.
+- **Which of typecheck, lint, format, build and test exist as real commands.** A
+  repository with no formatter cannot take the formatter check. Adopting a
+  formatter is a separate decision that produces a much larger diff, so offer it
+  rather than folding it into this work.
+- **Whether the typechecker needs generated files before it runs**, and whether
+  the repository invokes it as a compound command whose first half can fail in a
+  different output format.
+- **What the build emits, and in what shape**: an HTML entry point, a library
+  directory, a server bundle, a split client and server output — or nothing a
+  consumer downloads, in which case this repository takes no bundle check.
+- **Whether any build step globs the whole repository for its inputs.** The
+  Tailwind v4 CSS scan reads class-like strings out of every tracked file, so
+  the CI scripts you are about to add change the CSS the build emits. Scope that
+  scan to the client source before you measure anything, so that your first
+  bundle report describes this pull request rather than a leak that predates it.
+- **Whether another bot already comments on pull requests.** If one does, retire
+  its comment as part of this work, so that the pull request carries one voice
+  rather than two.
+- **Which repository-specific jobs have to keep working**: a database service, a
+  browser container, a release workflow, a deploy dry-run. This work replaces
+  the *reporting*; those jobs stay.
 
-Report what you found before you ask anything. "You're on pnpm with `check`,
-`lint`, `format`, `build` and `test:unit`, and no workflows yet" makes the
-following questions much cheaper to answer.
+Report what you found before you ask anything. A summary like "you're on pnpm
+with `check`, `lint`, `format`, `build` and `test:unit`, and no workflows yet"
+makes the questions below much cheaper for the developer to answer.
 
-## Step 2 — ask, do not assume
+## Step 2 — ask the developer, rather than assuming
 
-Present the checks and let the developer pick. The **fixed** cost is one install
-and one build per tree, paid once no matter how many checks they take. Each
-check then adds only its own run time.
+Present the checks and let the developer choose. Each tree costs one install and
+one build, whatever the number of checks, and each check then adds its own run
+time on top.
 
-| # | Check | What the delta tells you | Trees | Marginal cost |
-|---|-------|--------------------------|-------|---------------|
+| # | Check | What its delta tells the reader | Trees | Marginal cost |
+|---|-------|--------------------------------|-------|---------------|
 | 0 | **Build outcome** | Broke it, fixed it, or inherited a broken base | both | free with any build |
-| 1 | **Type errors** | New / resolved, with line shifts discounted | both | one typecheck per tree |
-| 2 | **Lint** | New / resolved, several linters merged into one list | both | no extra install or build; its own run time |
-| 3 | **Formatter drift** | Which touched files are unformatted, plus the repo-wide trend | both | seconds |
+| 1 | **Type errors** | New and resolved, with line shifts discounted | both | one typecheck per tree |
+| 2 | **Lint** | New and resolved, several linters merged into one list | both | no extra install or build; its own run time |
+| 3 | **Formatter drift** | Which touched files are unformatted, and the repo-wide trend | both | seconds |
 | 4 | **Bundle size** | Eager set, entry chunk, CSS, and which chunks stopped being cacheable | both | **forces the build**, then ≈ free |
-| 5 | **Tests** | Pass / fail with failure detail inline | head | the suite's own runtime |
-| 6 | **Build content scan** | Code that must never ship, found in the built output | head | a grep over the build |
+| 5 | **Tests** | Pass or fail, with the failures inline | head | the suite's own runtime |
+| 6 | **Build content scan** | Strings the team requires to stay out of the build | head | a grep over the build |
 
-Read the marginal-cost column out loud. Check 4 is the only one that changes
-the shape of the job: it forces a build on both trees. If they decline it, drop
-the build steps entirely — unless the typechecker needs built declarations
-(checks.md §1), in which case the build stays and only the measurement goes.
+Read the marginal-cost column to the developer. Check 4 is the one that changes
+the shape of the job, because it forces a build on both trees. If the developer
+declines check 4, drop the build steps — unless the typechecker resolves its
+inputs through built declarations (checks.md §1), in which case the build stays
+and only the measurement goes.
 
-Do not quote minute figures for their repo. Install and build time varies by
-more than an order of magnitude, and a confident wrong number is worse than "it
-depends on your build".
+Avoid quoting minute figures for their repository. Install and build times vary
+by more than an order of magnitude between projects, and a confident wrong
+number costs you more trust than "it depends on your build".
 
-Then the policy questions, which are the ones people have opinions about:
+Then ask the policy questions, which are the ones developers hold opinions
+about:
 
-1. **Gate or report, per check?** A sensible default gates type errors and
-   tests, and lets them choose on lint. Formatting blocks too, but on a
-   different scope — see below.
-2. **How strict on new issues?** Fail on the first, or allow a budget?
-3. **Vendored and generated files** — in or out of the lint and format deltas?
-   Default them out; nobody reviewing the PR can act on them.
-4. **Bundle budget**, if they took check 4. Report-only is the right default
-   until someone has watched the number for a few weeks.
-5. **Line-shift tolerance.** An unrelated edit above an existing error bumps its
-   line number. Pair those within ±10 lines so they do not read as one new plus
-   one resolved. Widen it on a codebase with big mechanical diffs.
+1. **Does each check block the merge, or only report?** A sensible default
+   blocks on type errors and tests, and lets the developer choose on lint.
+   Formatting blocks as well, on a different scope — see below.
+2. **How strict should a new issue be?** Block on the first one, or allow a
+   budget?
+3. **Do vendored and generated files belong in the lint and format deltas?**
+   Leave them out by default: a reviewer cannot act on an issue in a generated
+   file, so including it costs attention and returns nothing.
+4. **What bundle budget, if they took check 4?** Report-only suits a repository
+   where nobody has watched the number yet.
+5. **How much line-shift tolerance?** When an edit inserts lines above an
+   existing error, the tool reports that error at a new line number. Pair those
+   within ±10 lines, so that the report describes one shifted issue rather than
+   one new issue plus one resolved issue. Widen the tolerance in a codebase
+   whose pull requests make large mechanical diffs.
 
-Ask these as a batch, not one at a time.
+Ask these as one batch, so the developer answers once.
 
-**If nobody is available to answer**, decide and write every decision into the
-PR description rather than stalling. These defaults are defensible:
+**If nobody is available to answer**, choose defaults and write each choice into
+the pull request description, so the developer can overturn any of them in
+review. These defaults are defensible:
 
 | Check | Default | Why |
 |---|---|---|
-| Build, tests | block | A tree that does not build or pass cannot be judged. |
-| Type errors | block on new | Run the typechecker on `main` first — if the count is already high, report-only and say it tightens at zero. |
-| Lint | block on new if `main` is clean, report-only otherwise | Same test, same reason. Say which you found. |
-| Formatting | block on touched files | The scope makes it safe on any repo. |
-| Bundle size | report-only | Nobody has watched the number yet, so any budget is invented. |
-| Content scan | skip | Never guess what must not ship. An empty scan is machinery pretending to be a check. |
+| Build, tests | block | A tree that fails to build, or fails its tests, cannot support any other judgement. |
+| Type errors | block on new | Run the typechecker on `main` first. If it already reports a high count, choose report-only and say in the comment that the check tightens at zero. |
+| Lint | block on new when `main` is clean, report-only otherwise | Same test, same reasoning. Say which one you found. |
+| Formatting | block on touched files | The scope makes this check safe in any repository, however much drift it carries. |
+| Bundle size | report-only | Nobody has watched this number yet, so any budget you pick is a guess. |
+| Content scan | skip | Ask the team which strings must stay out of the build. A scan with an invented list is machinery pretending to be a check. |
 
-**Formatting blocks on a different scope** — the files this PR touched, not the
-delta. Lead with that, because it is what makes the check safe on a repo with
-debt, and offer report-only only if they ask for the number without the teeth.
-checks.md §3 has the mechanics.
+**The formatter check blocks on a different scope** — the files this pull
+request touched, rather than the delta. Lead with that when you present it,
+because that scope is what makes the check safe in a repository with debt. Offer
+report-only if the developer wants the number without the teeth. checks.md §3
+has the mechanics.
 
 ## Step 3 — build it
 
-The architecture reference gives you the shape and the reasoning. **Settle one
-question before the rest: how head's measuring tools reach the base tree.** It
-decides the job layout, and it is the difference between a first run that works
-and three that do not — architecture.md, *Both trees must be measured by the
-same instrument*.
+The architecture reference gives you the shape and the reasoning behind it.
+**Settle one question before the others: how head's measuring tools reach the
+base tree.** That answer decides your job layout, and it separates a first run
+that works from three that fail — see *Measure both trees with the same
+instrument* in architecture.md.
 
-Four more things are worth stating here, because they are the ones people get
-wrong:
+Four more points deserve stating here, because adopters get these wrong:
 
-- **Cache the base job.** Its output is a function of the base SHA and head's
-  configs, and neither changes when someone pushes again — yet it reinstalls and
-  rebuilds on every push, for the life of the PR. Key a cache on those two and
-  skip the job on a hit.
-- **Write it in the repository's own idiom.** Its language, its script
-  conventions, its test runner. If the repo has a test suite, the diff logic's
-  tests belong in that suite — not behind a bespoke `--selftest` flag that
-  nothing runs.
-- **Include only what this repo reaches.** A policy parser that accepts five
-  budget formats, in a repo whose budget is off, is not saving anyone work — it
-  is hiding that the feature is off. One constant and one comparison is the
-  whole feature when someone wants it.
-- **Comment to prevent a misread, not to justify a decision.** "Two-dot, not
-  three-dot, because the checkout is the merge ref" stops the next editor
-  breaking it. "Reporting and gating are separate because a contributor who
-  cannot see why it failed will guess" is your reasoning about the design, and
-  it belongs in the PR description, which you are also writing.
+- **Cache the base job.** Its output depends on the base SHA and on head's
+  configs, and neither one changes when the author pushes another commit — yet
+  the job reinstalls and rebuilds on every push for the life of the pull
+  request. Key a cache on those two inputs and skip the job on a hit, so the
+  repository spends runner minutes only on work that can produce a new answer.
+- **Write the workflow in the repository's own idiom**: its language, its script
+  conventions, its test runner. When the repository has a test suite, put the
+  diff logic's tests in that suite. A bespoke `--selftest` flag adds a second,
+  weaker test system beside the one the project already trusts, and nothing runs
+  it.
+- **Include only what this repository reaches.** A policy parser that accepts
+  five budget formats, in a repository whose budget is switched off, hides the
+  fact that the feature is off. When someone wants a budget later, one constant
+  and one comparison is the whole feature.
+- **Write each comment to prevent a misread**, rather than to justify a
+  decision. "Two-dot, not three-dot, because the checkout is the merge ref"
+  stops the next editor from breaking the touched-file list. "Reporting and
+  gating are separate because a contributor who cannot see why it failed will
+  guess" explains your design to someone who did not ask, and belongs in the
+  pull request description that you are also writing.
 
 ## Step 4 — make it fail before you hand it over
 
-Reading the code catches less than you think. Across nine adoptions, every one
-was verified by reading, and five still failed on their first real run.
+Reading the code catches less than you expect. Nine adoptions verified their
+work by reading it, and five of them still failed on their first real run.
 
 - **Prove the gate can fail.** Plant an error the gate should catch, and watch
-  the job go red. A gate that has only ever passed has not been tested.
-- **Prove a missing measurement blocks.** Delete one output and re-run the
-  report. It must say that tree was not measured — never "no change".
-- **Prove the formatter gate fires and stops firing.** Plant drift in a file the
-  PR touched, then in one it did not.
-- **Prove the check scripts are subject to their own checks.** They are files in
-  the repository like any other, so plant an error in one and confirm it is
-  reported. Two things defeat this: excluding them from the deltas, and a tool
-  whose file glob does not reach a dot-directory.
-- Confirm no leftover placeholder or unreferenced file survives.
+  the job turn red. A gate that has only ever passed is a gate nobody has
+  tested.
+- **Prove that a missing measurement blocks.** Delete one output file and re-run
+  the report job. It needs to say that the tree went unmeasured; if it says "no
+  change" instead, a broken run reads to the team as a clean one.
+- **Prove the formatter gate fires, and that it stops firing.** Plant drift in a
+  file the pull request touched, then in a file it left alone.
+- **Prove the repository's own checks reach the check scripts.** They are files
+  in the repository like any other, so plant an error in one and confirm the
+  report names it. Two things defeat this test: excluding those scripts from the
+  deltas, and a tool whose file glob skips a dot-directory.
+- **Confirm that no placeholder and no unreferenced file survives** in what you
+  hand over.
 
-Then say plainly that CI cannot be fully verified without a real PR, and that
-the first run is the actual test. Note also that the PR adding this workflow is
-checked *by its own new version*, so a bug in the workflow can make the PR look
-fine when it is not.
+Then tell the developer plainly that a real pull request is the only full test,
+and that the first run is that test. Tell them as well that the pull request
+adding this workflow gets checked *by its own new version* of the workflow, so a
+bug in the workflow can make that pull request look fine while it is not.
 
-**Keep the design contrast out of the pull request.** Name what the workflow
-reports: "Add PR checks: type errors, lint, formatter drift, bundle size,
-tests". A title built on "report this, not that" is a slogan, and in a repo that
-had no CI it answers a question nobody asked.
+**Keep the design contrast out of the pull request.** Title it by what the
+workflow reports: "Add PR checks: type errors, lint, formatter drift, bundle
+size, tests". A title built on "report this, not that" reads as a slogan, and in
+a repository that had no CI it answers a question nobody asked.
 
 ## Rules that keep the report honest
 
-- **Report and gate are separate steps.** The comment posts even on a red build.
-- **One comment, updated in place**, matched on a hidden marker rather than a
-  visible heading.
-- **Normalise before diffing.** Sort every list and strip summary lines like
-  "Found 12 errors" — those change with the count and diff as pure noise.
-- **Cap every list** at about 20 items. A mechanical refactor will find the
-  comment size limit.
-- **A file you touched ships formatted; a file you did not is not your problem.**
-- **Missing input blocks.** An absent measurement, an empty one, and a tool that
-  could not run are all the same verdict, and none of them is "no change".
+- **The report job posts the comment, and a separate step decides the verdict.**
+  The comment then reaches the author even when the run goes red, so they can
+  see which check failed and why.
+- **The report job updates one comment**, matching it by a hidden marker rather
+  than by a visible heading.
+- **Normalise each list before you diff it.** Sort it, and strip summary lines
+  such as "Found 12 errors": those lines change whenever the count changes, so
+  they diff as noise on every pull request.
+- **Cap each list at about 20 items.** A mechanical refactor produces thousands
+  of lines, and the platform rejects an over-long comment body.
+- **A file the author touched ships formatted; a file they left alone is not
+  their problem.**
+- **Missing input blocks the merge.** An absent measurement, an empty
+  measurement, and a tool that could not run all mean the same thing, and none
+  of them means "no change".

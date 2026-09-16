@@ -1,259 +1,284 @@
 # The checks
 
-Per check: what to measure, how to normalise it, and what the delta means. The
-diff only needs one sorted line per issue, so any tool that can be coaxed into
-`file:line:col: message` drops straight in.
+For each check: what the job measures, how it normalises the output, and what
+the delta tells the reader. The diff needs one sorted line per issue, so any
+tool you can coax into `file:line:col: message` drops straight in.
 
 ## 0. Build outcome
 
-Run both builds under "continue on error" and keep each log. If you pipe the
-build into anything to capture that log, read the pipe entry in failure-modes.md
-first: the obvious form records a failed build as a success. Two outcomes give
-four messages:
+Run both builds so that a failure does not end the job, and keep each build's
+log. Two outcomes give the report job four things to say:
 
-| head | base | Say |
+| head | base | The comment says |
 |---|---|---|
 | builds | builds | nothing at all |
-| builds | broken | this PR fixes the build |
-| broken | builds | this PR breaks the build, with a log excerpt |
+| builds | broken | this pull request repairs the build |
+| broken | builds | this pull request breaks the build, with a log excerpt |
 | broken | broken | the base branch is already broken — repair it first |
 
-That last row is why both trees are read. Telling someone they broke a build
-they inherited wastes their afternoon.
+If you pipe the build into anything to capture that log, read the pipe entry in
+failure-modes.md first: the obvious form records a failed build as a success.
 
-Quote the log from the **first error**, not the tail: most tools print a
-summary, a stack and an exit code after the useful part. Check whether your
-build tool timestamps its lines, and anchor on words that appear only in a
-failing build — successful builds print `[vite]` and plugin names too.
+The last row is why the report job reads both trees. If it blamed the author for
+a build the base branch already broke, they would spend an afternoon looking for
+a cause in their own diff.
 
-"Skipped" and "cancelled" are not "success". A tree that was never built has not
-been shown to build.
+Quote the log from its **first error**, rather than from its tail. Most build
+tools print a summary, a stack and an exit code after the useful part, so the
+last 40 lines are usually the least informative 40 lines. Check whether the
+build tool timestamps its lines, and anchor the excerpt on words that appear
+only in a failing build — a successful Vite build also prints `[vite]` and its
+plugin names.
 
-**Gate:** always. A PR whose tree does not build cannot be verified by anything
-else in the report.
+Treat "skipped" and "cancelled" as different from "success". A tree the runner
+did not build has not shown that it builds.
+
+**Gate:** block. If a tree does not build, no other check in the report can say
+anything trustworthy about it.
 
 ## 1. Type errors
 
 **Normalised form:** the tool's own error lines, sorted unique, with summary
-lines stripped. `Found 12 errors` changes whenever the count does, so it diffs
-as a permanent phantom issue.
+lines stripped. A line such as `Found 12 errors` changes whenever the count
+changes, so it diffs as a phantom issue on every pull request.
 
 | Language | Command |
 |---|---|
 | TypeScript | `tsc --noEmit`, keeping only lines matching `: error TS` |
 | Python | `mypy --no-error-summary --no-color-output .` |
-| Go | `go build ./...` — `go vet` is analysis, not the typechecker |
+| Go | `go build ./...` — `go vet` runs analysis, rather than typechecking |
 | Rust | `cargo check --message-format short` |
 
-Two rules underneath the table, both language-neutral:
+Two rules sit underneath that table, and both hold in any language:
 
-**Generate the typechecker's inputs cheaply; do not make the build a
-prerequisite.** A tree that does not build still deserves a type report. The
-exception is a workspace whose packages resolve each other through built
-artifacts — there the build *is* the generation step, and an unbuilt tree
-reports a phantom missing-module error for every sibling (one repo measured 41
-unbuilt against 0 built).
+**Generate the typechecker's inputs cheaply, rather than making the build a
+prerequisite.** A tree that fails to build still deserves a type report, and a
+generation step usually costs seconds. One exception: in a workspace whose
+packages resolve each other through built artifacts, the build *is* the
+generation step, so an unbuilt tree reports a phantom missing-module error for
+every sibling package — one repository measured 41 errors unbuilt against 0
+built.
 
-**Normalise the output once, and strip colour before parsing.** Not every
-typechecker prints `file:line:col: message` (`astro check` prints
-`file:line:col - error ts(NNNN):` with ANSI colour and code frames), and a
-parser fed escape codes matches nothing while looking like it ran.
+**Normalise the output once, and strip colour before you parse it.** Not every
+typechecker prints `file:line:col: message`; `astro check` prints
+`file:line:col - error ts(NNNN):` with ANSI colour and code frames. A parser fed
+escape codes matches nothing while appearing to run.
 
-**Gate:** `no-new` suits almost everyone — type errors are unambiguous and cheap
-to fix at the moment you introduce one. Run the typechecker on the base branch
-first: if the count is already high, start report-only and say in the comment
-that it tightens at zero.
+**Gate:** block on new issues, which suits almost every repository, because a
+type error is unambiguous and cheap to fix at the moment someone introduces it.
+Run the typechecker on the base branch first: if it already reports a high
+count, start report-only and say in the comment that the check tightens at zero.
 
 ## 2. Lint
 
-**Normalised form:** `file:line:col: message`, several linters merged into one
-sorted list. A reviewer cares that there is a new issue at `src/foo.ts:12`, not
-which tool found it. Keep the rule name in the message so the fix stays obvious.
+**Normalised form:** `file:line:col: message`, with several linters merged into
+one sorted list. A reviewer cares that a new issue sits at `src/foo.ts:12`,
+rather than which of two tools found it, so keep the rule name in the message
+and let the fix stay obvious.
 
-Filter vendored and generated paths before sorting; they produce issues nobody
-on the PR can act on, and they can outnumber the real ones.
+Filter vendored and generated paths before you sort. A reviewer cannot act on an
+issue in a generated file, and those issues can outnumber the ones they can act
+on.
 
-Warnings and errors are worth separating if the tool distinguishes them: gate on
+If the linter distinguishes warnings from errors, separate them: block on
 errors, report warnings.
 
-**Gate:** `no-new` on a maintained codebase. On a legacy one, start report-only
-for a few weeks so the team sees the number, then tighten. Going straight to
-`no-new` on a repo with thousands of existing issues is how these workflows get
-switched off.
+**Gate:** block on new issues in a maintained codebase. In a legacy one, run
+report-only for a few weeks so the team watches the number first, then tighten.
+Blocking on new issues in a repository that already holds thousands is how a
+team ends up switching the workflow off.
 
 ## 3. Formatter drift
 
-**Normalised form:** a sorted list of file paths — the files the formatter would
+**Normalised form:** a sorted list of paths — the files the formatter would
 rewrite.
 
-Use the tool's **read-only list mode**. Running it in write mode and diffing the
-tree answers the same question and destroys uncommitted work outside CI.
+Use the formatter's **read-only list mode**. Running it in write mode and then
+diffing the tree answers the same question, and it destroys uncommitted work
+whenever someone runs the script outside CI.
 
-Run whatever formatter the repo already runs; read the command out of its
-scripts rather than asking. If two formatters cover different file types, run
-both — the output is a path list either way.
+Run whichever formatter the repository already runs, and read its command out of
+the repository's scripts rather than asking. If two formatters cover different
+file types, run both; each one yields a path list.
 
-This check is set-difference only. The unit is the file, so line-shift pairing
-does not apply.
+This check compares two sets of paths. Its unit is the file, so line-shift
+pairing does not apply.
 
-### The gate is scoped to touched files, not to the delta
+### The gate covers touched files, rather than the delta
 
-Formatting is not linting. The formatter applies to every file the PR touched,
-every time, and never to a file it left alone. So the gate is the intersection
-of the PR's own file list with the drift list, and it fails on any file in both
-— new drift or old.
+Formatting differs from linting. The formatter applies to every file the author
+touched, every time, and leaves alone every file they did not. So the gate takes
+the intersection of the pull request's own file list with the drift list, and it
+blocks on any file in both — whether that drift is new or predates the pull
+request.
 
-Those two lists have to use the same path shape or the intersection is empty on
-every PR, and the gate then never fires again. Read the path-shape entry in
-failure-modes.md before you write this one.
+Those two lists have to use the same path shape, or the intersection comes out
+empty on every pull request and the gate stops firing altogether. Read the
+path-shape entry in failure-modes.md before you write this check.
 
 The repo-wide total still belongs in the comment, with a trend arrow, as
 context. Group it by extension: eighty `.sql` files read very differently from
 eighty spread across `.ts` and `.tsx`.
 
-**If the repo has no formatter**, this check does not exist. Do not leave its
-machinery behind — the touched-file list, the policy entry, the fragment — or
-the comment renders "no list of touched files was produced" forever. Adopting a
-formatter is a separate decision with a much larger diff. Offer it; do not
-smuggle it in.
+**If the repository has no formatter**, this check does not exist. Remove its
+machinery rather than leaving it inert — the touched-file list, the policy
+entry, the fragment — because a half-removed check renders "no list of touched
+files was produced" on every pull request from then on. Adopting a formatter is
+a separate decision that produces a much larger diff, so offer it rather than
+folding it in.
 
-**Gate:** touched-clean.
+**Gate:** block on touched files.
 
 ## 4. Bundle size
 
 **Normalised form:** byte counts, raw and compressed, on several axes.
 
 Measure **the artifact a consumer actually pays for, as the tool that ships it
-reports it** — not a sum over the output directory. For a web app that is the
-eager-load set, what a first paint must download; for a binary, the linked
-binary; for a package, the published archive; for a container, the image layers.
-**If your build produces nothing a consumer downloads, skip this check.**
+reports the size** — rather than summing the output directory. For a web app
+that artifact is the eager-load set, which is what a first paint downloads; for
+a binary it is the linked binary; for a package, the published archive; for a
+container, the image layers. **If the build produces nothing a consumer
+downloads, skip this check.**
 
-The rest of this section is the web-app case, which is where the interesting
-axes are. Report lazy chunks separately: a route split out of the eager set is a
-win that one total would hide.
+The rest of this section describes the web-app case, which carries the
+interesting axes. Report lazy chunks separately, so that a route split out of
+the eager set reads as the win it is rather than disappearing into one total.
 
-Axes that move for different reasons, and so belong apart:
+These axes move for different reasons, so report them apart:
 
 - **Eager total** — what a first paint costs
-- **Entry chunk** — your own code, re-downloaded on every deploy
-- **CSS** — render-blocking, and moves with design rather than logic
-- **Chunk identity** — compared by content hash, not size. Applies wherever the
-  artifact is cached in pieces.
+- **Entry chunk** — your own code, which every visitor re-downloads on each
+  deploy
+- **CSS** — render-blocking, and it moves when the design changes rather than
+  when the logic does
+- **Chunk identity** — compared by content hash rather than by size, wherever
+  the platform caches the artifact in pieces
 
-That last one is the axis people miss and often the most useful. A chunk whose
-hash is unchanged is still in returning visitors' caches, so a PR that adds 2 kB
-to one has really cost every returning visitor the whole chunk again. Report
-which chunks changed first, sizes second — and get the hash-stripping pattern
-wrong and it silently compares two different files as one (failure-modes.md).
+Chunk identity is the axis people miss, and often the most useful one. A chunk
+whose hash has not changed still sits in returning visitors' caches, so a pull
+request that adds 2 kB to one chunk has cost every returning visitor the whole
+chunk again. Report which chunks changed first, and their sizes second. If the
+hash-stripping pattern is wrong, it compares two different files as one
+unchanged chunk (failure-modes.md).
 
-Compare the **union** of both trees' chunks, not the intersection. A report that
-only lists chunks present on both sides cannot show a chunk that appeared or
-disappeared, which is the largest thing that can happen to this axis.
+Compare the **union** of both trees' chunks, rather than the intersection. A
+report built on the intersection cannot show a chunk that appeared or
+disappeared, which is the largest thing that happens on this axis.
 
 A project with manual chunk groups sees its own shared chunks in that list too,
-and those re-hash on most changes. The list answers "what does a returning
-visitor re-download", not "what went wrong".
+and those chunks re-hash on most changes. The list answers "what does a
+returning visitor download again", rather than "what went wrong".
 
-### When there is no HTML entry point
+### When the build emits no HTML entry point
 
 - **A library.** Take no bundle check. `publish --dry-run` is the check that
-  matters, because it catches a package shipping the wrong files.
-- **A server or Worker bundle.** Report what the deploy tool reports, not what
-  the output directory sums to: the platform compresses the assembled bundle
-  once and counts only what the entry point pulls in, so a sum over files is not
-  the quantity the limit applies to. Where there is a hard limit — Cloudflare
-  rejects a Worker over 64 MiB compressed, on every plan — report it as a share
-  of that limit rather than as a trend, and check the current figure rather than
-  trusting this sentence.
-- **A split client/server output.** Two axes, never one total.
-- **A server-rendered app with no HTML at all.** The eager set lives in the
-  framework's route manifest, and the manifest may not be a data file: TanStack
-  Start compiles it into a module inside the *server* build, and Next.js keeps
-  its own under `.next`. Find it, and parse it by matching delimiters rather
-  than by a regex over indentation — a regex that assumes the emitted
-  whitespace breaks on the next formatter change and falls back silently.
-  Record which source the eager set came from and print it, so a fallback to
-  walking the directory is visible rather than passing as a number.
+  matters here, because it catches a package that ships the wrong files.
+- **A server or Worker bundle.** Report what the deploy tool reports, rather
+  than what the output directory sums to: the platform compresses the assembled
+  bundle once and counts only what the entry point pulls in, so a sum over files
+  measures a quantity the limit does not apply to. Where the platform imposes a
+  hard limit — Cloudflare rejects a Worker over 64 MiB compressed, on every plan
+  — report the size as a share of that limit rather than as a trend, and check
+  the current figure rather than trusting this sentence.
+- **A split client and server output.** Report two axes, rather than one total.
+- **A server-rendered app that emits no HTML.** The framework's route manifest
+  holds the eager set, and that manifest may not be a data file: TanStack Start
+  compiles it into a module inside the *server* build, and Next.js keeps its own
+  under `.next`. Find it, and parse it by matching delimiters rather than by a
+  regex over indentation, because a regex that assumes the emitted whitespace
+  breaks on the next formatter change and falls back without saying so. Record
+  which source produced the eager set and print it, so that a fallback to
+  walking the directory stays visible instead of passing as a number.
 
-A Worker repo wants two instruments rather than one: the client bundle takes
-this check, and the Worker takes a deploy dry-run. That dry-run bundles exactly
-as a deploy would and is the only thing validating the deploy config and its
-bindings — a binding typo passes every other check in the report. It runs after
-the build, because an assets binding needs the built output to exist.
+A Worker repository wants two instruments rather than one: the client bundle
+takes this check, and the Worker takes a deploy dry-run. The dry-run bundles
+exactly as a deploy would, and it is the only check that validates the deploy
+config and its bindings — a binding typo passes every other check in the report.
+Run it after the build, because an assets binding needs the built output to
+exist.
 
-**Watch for:** a bundler that reads environment variables at build time can
-tree-shake dependencies away when they are missing, producing a build that looks
-dramatically smaller and means nothing. Set dummy-but-truthy values and
-sanity-check that a known dependency survived.
+**Watch for a bundler that reads environment variables at build time.** When
+those variables are missing, it can tree-shake dependencies away, and the build
+then looks dramatically smaller while meaning nothing. Set dummy-but-truthy
+values, and check that a known dependency survived into the output.
 
-**Gate:** report-only until someone has watched the number for a few weeks.
-Then a byte budget, generous enough that only real regressions trip it.
-Percentages misbehave on small bundles — 5% of 40 kB is one dependency bump.
-Whatever the budget, ignore deltas of a few hundred bytes: two builds of the
-same commit differ by that much.
+**Gate:** report-only until someone has watched the number for a few weeks, then
+a byte budget generous enough that only a real regression trips it. Percentages
+misbehave on small bundles, where 5% of 40 kB is one dependency bump. Whatever
+budget you set, ignore a delta of a few hundred bytes: two builds of the same
+commit differ by that much.
 
 ## 5. Tests
 
-**Normalised form:** counts plus a list of failures.
+**Normalised form:** counts, plus a list of failures.
 
-Single-branch. A test passes on head or it does not; there is nothing to compare
-against base, and pretending otherwise produces a confusing report.
+This check reads head alone. A test passes on head or it does not, and the base
+branch offers nothing to compare against, so a delta framing here produces a
+confusing report.
 
-Run it so a failure still reaches the comment, and let the report job own the
-verdict. Emit machine-readable output — `--reporter=json`, `--json-report`,
-`-json` — because parsing human output breaks on every minor version.
+Run the suite so that a failure still reaches the comment, and let the report
+job decide the verdict. Ask the runner for machine-readable output —
+`--reporter=json`, `--json-report`, `-json` — because a parser built on human
+output breaks at the next minor version.
 
-In a workspace, expect **one report per package**, and carry the step's own
+In a workspace, expect **one report per package**, and carry the test step's own
 outcome into the renderer.
 
-Cap the failure list at about 20 and truncate each message to its first line.
-Stack traces belong in the job log.
+Cap the failure list at about 20 entries, and truncate each message to its first
+line. Stack traces belong in the job log.
 
-**Gate:** any failure fails, and so does a missing report.
+**Gate:** block on any failure, and on a missing report.
 
 ## 6. Build content scan
 
-**Normalised form:** a list of forbidden strings found in the built output.
+**Normalised form:** a list of forbidden strings that the scan found in the
+built output.
 
-No default ships, because "must never ship" means something different in every
-project. Common instances: test-only helpers reachable from the entry point, a
+This skill ships no default list, because each project forbids different things.
+Common ones: a test-only helper reachable from the production entry point, a
 debug flag left on, a staging hostname, a development key.
 
-Ask what the forbidden strings are; do not guess. Keep a reason on each entry —
-a bare pattern list rots within months and nobody dares delete an entry they
-cannot explain. Prefer literal strings over clever patterns.
+Ask the team which strings must stay out of the build, rather than guessing.
+Keep a reason on each entry: a bare pattern list rots within months, and nobody
+dares delete an entry they cannot explain. Prefer a literal string over a clever
+pattern — a string literal survives minification, while an identifier does not
+(`__TEST_ONLY__` is still in the bundle; `isTestMode` became `a`).
 
-Single-branch, and it needs the build. Scan the same output the bundle
-measurement already read; never build twice. Write its result into the same
-comment: a check that only turns a job red is a check people re-run rather than
-read.
+This check reads head alone, and it needs the build. Scan the same output the
+bundle measurement already read, so the job builds once. Write the result into
+the same comment: a check that only turns a job red is a check people re-run
+rather than read.
 
-**Gate:** always. A leaked key is not a trend to watch.
+**Gate:** block. A leaked key is not a trend to watch.
 
 ## 7. HTTP contract — optional, head only
 
-**Skip this unless the repo asks for it.** Most adoptions do not take it, and a
-repo with end-to-end tests already covers the ground.
+**Skip this unless the repository asks for it.** Most adoptions leave it out,
+and a repository with end-to-end tests already covers the ground.
 
 It catches what no static check can: a redirect that lost its target, a page
-that started returning 404, a cache header that quietly went `no-store`. Start
-the built server, wait for it to answer, then run a request-only suite — no
-browser, so no browser download. A hermetic script that boots the real runtime
-locally fits the same slot.
+that started returning 404, a cache header that quietly became `no-store`. Start
+the built server, wait until it answers, then run a request-only suite against
+it — no browser, so the job downloads no browser. A hermetic script that boots
+the real runtime locally fits the same slot.
 
-Four things make the difference between a suite that catches those and one that
-passes regardless: fail when the server never becomes ready rather than letting
-a poll loop fall through; do not follow redirects, or a 301 → 200 chain reads as
-200; assert only headers that are stable across two runs of the same build; and
-list the routes literally, because a glob over the app's own routes passes when
-a route disappears.
+Four decisions separate a suite that catches those failures from one that passes
+regardless:
+
+- Fail when the server does not become ready, rather than letting a poll loop
+  fall through, so the suite reports "the server did not start" instead of a
+  hundred connection errors.
+- Stop the client following redirects, or a 301 → 200 chain reads as 200 and the
+  redirect assertions test nothing.
+- Assert only the headers that stay stable across two runs of the same build.
+- List the routes literally. A glob over the app's own routes passes when a route
+  disappears, which is the failure this suite exists to catch.
 
 ## Workspaces
 
-**Skip this section unless the repo has a workspace file listing packages.** In
-a single-package repo none of it applies.
+**Skip this section unless the repository has a workspace file that lists
+packages.** In a single-package repository, none of it applies.
 
-A recursive runner changes every check above. See failure-modes.md for the path
-splice, bail behaviour, per-package test reports, and the reporter format that
-the splice depends on.
+A recursive runner changes every check above. failure-modes.md covers the path
+splice, the bail behaviour, the per-package test reports, and the reporter
+format that the splice depends on.
