@@ -25,6 +25,8 @@ push. Something like this:
 ### PR checks
 _Compared against `main`._
 
+❌ **Blocking:** 2 new type errors · 1 file you touched is unformatted
+
 #### Type errors
 ❌ **2 new** · 41 on `main` → 43 here · 1 resolved · 3 shifted, not counted
 
@@ -36,10 +38,12 @@ _Compared against `main`._
 ✅ No new issues. 1,204 on `main` → 1,198 here · 6 resolved
 
 #### Formatter drift
-❌ **1 file this PR touches is not formatted.** Run the formatter and commit.
-    src/client/deck.tsx
+❌ **Blocking — 1 file this PR touches is not formatted.** Run the formatter
+    and commit. A file you edited ships formatted, no exceptions.
+      src/client/deck.tsx
 
-  Repo-wide drift is context, not a gate: 83 files ↓ from 84.
+  The other 82 unformatted files are not this PR's problem, and are reported
+  only as a trend: 83 files ↓ from 84.
   By type: `.ts` 51 · `.tsx` 24 · `.sql` 8
 
 #### Bundle size
@@ -58,8 +62,18 @@ The **Build** section is absent here on purpose: both trees built, so it says
 nothing. It appears only to report that this PR broke the build, fixed a broken
 base branch, or inherited one that was already broken.
 
-Each section then has a policy — block or report — and one step at the end
-decides the verdict from the same numbers the comment shows.
+Each section has a policy, and one step at the end reaches the verdict from the
+same numbers the comment shows. In this example, type errors and the touched
+unformatted file block the merge, while the bundle growth and the repo-wide
+formatter total are reported and nothing else.
+
+Two of those defaults are worth saying out loud, because they are the ones that
+make this CI usable on a repo carrying debt:
+
+- **A file you touched ships formatted.** That blocks, whether the drift is new
+  or was there before you opened the file.
+- **A file you did not touch is not your problem.** 82 unformatted files sit in
+  the same report as a trend, and block nothing.
 
 ## This skill is instructions, not a framework
 
@@ -146,7 +160,8 @@ depends on your build".
 Then the policy questions, which are the ones people have opinions about:
 
 1. **Gate or report, per check?** A sensible default gates type errors and
-   tests, and lets them choose on lint. Formatting is the exception — see below.
+   tests, and lets them choose on lint. Formatting blocks too, but on a
+   different scope — see below.
 2. **How strict on new issues?** Fail on the first, or allow a budget?
 3. **Vendored and generated files** — in or out of the lint and format deltas?
    Default them out; nobody reviewing the PR can act on them.
@@ -158,10 +173,12 @@ Then the policy questions, which are the ones people have opinions about:
 
 Ask these as a batch, not one at a time.
 
-**Formatting is scoped differently.** It is not linting: the formatter applies
-to every file the PR touched, every time — new drift or old — and never to a
-file it left alone. Lead with that, and offer report-only if they want the
-number without the teeth.
+**Formatting blocks, on a different scope.** It is not linting: the formatter
+applies to every file the PR touched, every time — new drift or old — and never
+to a file it left alone. So it does not gate on the delta like the others; it
+gates on the intersection of the PR's own file list with the drift list. Lead
+with that, and offer report-only only if they ask for the number without the
+teeth.
 
 ## Step 3 — build it
 
