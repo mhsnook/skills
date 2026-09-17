@@ -48,6 +48,7 @@ duplicate.
 |---|---|
 | [`spec-debt`](skills/spec-debt/) | Read-only audit for specification debt: claims living at the wrong altitude, and claims stated more strongly than they are known. Produces a ledger and a report; edits nothing. |
 | [`comment-review-a`](skills/comment-review-a/) [`-b`](skills/comment-review-b/) [`-c`](skills/comment-review-c/) | Three variants of the same PR-time job — review the comments in one change. Being compared in real use; see below. |
+| [`clear-instructions`](skills/clear-instructions/) | Writes and rewrites prose another agent acts on — skills, plans, prompts, briefs. Names the actor in every instruction, swaps absolutes for the analysis they stand in for, and keeps specificity where a reader can verify it. |
 | [`ci-delta-reports`](skills/ci-delta-reports/) | Sets up GitHub Actions CI that reports what *changed* between base and PR — new vs resolved type errors, lint issues, formatter drift, bundle size, test failures — in one PR comment that updates in place. |
 
 `spec-debt` came from `mhsnook/journo-harness@707bc1e`, branch
