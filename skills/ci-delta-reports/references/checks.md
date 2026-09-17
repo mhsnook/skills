@@ -131,11 +131,9 @@ folding it in.
 
 ## 4. Bundle size
 
-**Normalised form:** byte counts, raw and compressed, on several axes.
-
-Label the unit you actually divided by: 1,000 bytes is a kB and 1,024 is a KiB.
-Two reports that disagree by 2.4% while using the same word waste a reader's
-afternoon.
+**Normalised form:** byte counts, raw and compressed, on several axes, in kB
+and MB. Pick one divisor and use it everywhere, so that two numbers in the same
+comment mean the same thing.
 
 Measure **the artifact a consumer actually pays for, as the tool that ships it
 reports the size** — rather than summing the output directory. For a web app
@@ -180,10 +178,10 @@ returning visitor download again", rather than "what went wrong".
 - **A server or Worker bundle.** Report what the deploy tool reports, rather
   than what the output directory sums to: the platform compresses the assembled
   bundle once and counts only what the entry point pulls in, so a sum over files
-  measures a quantity the limit does not apply to. Where the platform imposes a
-  hard limit — Cloudflare rejects a Worker over 64 MiB compressed, on every plan
-  — report the size as a share of that limit rather than as a trend, and check
-  the current figure rather than trusting this sentence.
+  measures a quantity the limit does not apply to. If the platform rejects a
+  deploy over a fixed size, look that figure up in its current documentation and
+  report the size as a share of it, which tells a reader how much room is left.
+  Otherwise report the trend.
 - **A split client and server output.** Report two axes, rather than one total.
 - **A server-rendered app that emits no HTML.** The framework's route manifest
   holds the eager set, and that manifest may not be a data file: TanStack Start

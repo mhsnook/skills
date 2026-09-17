@@ -98,6 +98,10 @@ directories**, so that neither one sits inside the other:
     sparse-checkout: ci
 ```
 
+Take the current major version of each action rather than the one in this
+example, and rather than the one you last used. An old major eventually runs on
+a deprecated runtime, and the runner then annotates every job in the workflow.
+
 Checking the instrument into a subdirectory *of* the measured tree looks simpler
 and costs you a whole failure mode: the base branch does not contain an ignore
 rule for a directory your workflow invented, so the base job's linter walks into
